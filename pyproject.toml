@@ -11,12 +11,15 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
     # pinned tag; change on purpose after own checks (see CLAUDE.md, Decisions)
-    "design-ingest[llm] @ git+https://github.com/owl-solar/design-ingest@v0.3.0",
+    "design-ingest[llm] @ git+https://github.com/owl-solar/design-ingest@v0.5.0",
     "pydantic>=2.5",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.5"]
+
+[project.scripts]
+om-copilot = "om_copilot.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
