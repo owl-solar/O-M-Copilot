@@ -1,0 +1,250 @@
+[
+  {
+    "id": "q01",
+    "type": "fault_code",
+    "question": "SG350HX shows fault 39. What should I check?",
+    "expected_file": "SG305HX_SG320HX-20_SG350HX-20 User Manual.pdf",
+    "expected_pages": [
+      131
+    ],
+    "answerable": true
+  },
+  {
+    "id": "q02",
+    "type": "fault_code",
+    "question": "What do I do about electric arc fault 88 on the Sungrow inverter?",
+    "expected_file": "SG305HX_SG320HX-20_SG350HX-20 User Manual.pdf",
+    "expected_pages": [
+      131
+    ],
+    "answerable": true
+  },
+  {
+    "id": "q03",
+    "type": "fault_code",
+    "question": "Sungrow inverter reports fault code 5. What does it mean and what are the corrective measures?",
+    "expected_file": "SG305HX_SG320HX-20_SG350HX-20 User Manual.pdf",
+    "expected_pages": [
+      127
+    ],
+    "answerable": true
+  },
+  {
+    "id": "q04",
+    "type": "fault_code",
+    "question": "What does fault code 450 mean on the SG350HX?",
+    "expected_file": "SG305HX_SG320HX-20_SG350HX-20 User Manual.pdf",
+    "expected_pages": [
+      129
+    ],
+    "answerable": true
+  },
+  {
+    "id": "q05",
+    "type": "fault_code",
+    "question": "Inverter fault 37 on a hot afternoon: what are the corrective measures?",
+    "expected_file": "SG305HX_SG320HX-20_SG350HX-20 User Manual.pdf",
+    "expected_pages": [
+      130
+    ],
+    "answerable": true
+  },
+  {
+    "id": "q06",
+    "type": "fault_code",
+    "question": "Huawei alarm 2062 Low Insulation Resistance: what are the suggested steps?",
+    "expected_file": "Inverter Alarm Reference.pdf",
+    "expected_pages": [
+      52
+    ],
+    "answerable": true
+  },
+  {
+    "id": "q07",
+    "type": "fault_code",
+    "question": "What should be checked for Huawei alarm 2034 Grid Overvoltage when it occurs frequently?",
+    "expected_file": "Inverter Alarm Reference.pdf",
+    "expected_pages": [
+      41
+    ],
+    "answerable": true
+  },
+  {
+    "id": "q08",
+    "type": "fault_code",
+    "question": "Huawei alarm 2002 DC Arc Fault: what should I look for on the PV strings?",
+    "expected_file": "Inverter Alarm Reference.pdf",
+    "expected_pages": [
+      16
+    ],
+    "answerable": true
+  },
+  {
+    "id": "q09",
+    "type": "fault_code",
+    "question": "Huawei alarm 2063 Temperature High, what is the recommended action?",
+    "expected_file": "Inverter Alarm Reference.pdf",
+    "expected_pages": [
+      54
+    ],
+    "answerable": true
+  },
+  {
+    "id": "q10",
+    "type": "fault_code",
+    "question": "Sunny Central error 3504 insulation monitoring: what is the corrective measure?",
+    "expected_file": "SCCP-JP-B1-BA-en-23.pdf",
+    "expected_pages": [
+      70
+    ],
+    "answerable": true
+  },
+  {
+    "id": "q11",
+    "type": "fault_code",
+    "question": "Sunny Central error 0103 grid voltage too high: what should I check?",
+    "expected_file": "SCCP-JP-B1-BA-en-23.pdf",
+    "expected_pages": [
+      69
+    ],
+    "answerable": true
+  },
+  {
+    "id": "q12",
+    "type": "fault_code",
+    "question": "SMA event 4003 reverse currents in the PV array: what should be checked?",
+    "expected_file": "SCCP-JP-B1-BA-en-23.pdf",
+    "expected_pages": [
+      71
+    ],
+    "answerable": true
+  },
+  {
+    "id": "q13",
+    "type": "procedure",
+    "question": "How do I disconnect the Sungrow inverter from AC and DC power for maintenance?",
+    "expected_file": "SG305HX_SG320HX-20_SG350HX-20 User Manual.pdf",
+    "expected_pages": [
+      136
+    ],
+    "answerable": true
+  },
+  {
+    "id": "q14",
+    "type": "procedure",
+    "question": "How are the fans of the Sungrow inverter replaced and cleaned?",
+    "expected_file": "SG305HX_SG320HX-20_SG350HX-20 User Manual.pdf",
+    "expected_pages": [
+      138,
+      139
+    ],
+    "answerable": true
+  },
+  {
+    "id": "q15",
+    "type": "procedure",
+    "question": "How do I find a string short-circuited to ground with a megohmmeter on a Huawei inverter?",
+    "expected_file": "Inverter Alarm Reference.pdf",
+    "expected_pages": [
+      23
+    ],
+    "answerable": true
+  },
+  {
+    "id": "q16",
+    "type": "procedure",
+    "question": "Where do I see which optimizer is faulty when Huawei alarm 2081 appears?",
+    "expected_file": "Inverter Alarm Reference.pdf",
+    "expected_pages": [
+      74
+    ],
+    "answerable": true
+  },
+  {
+    "id": "q17",
+    "type": "procedure",
+    "question": "How do I check that the fans of the Sunny Central work after commissioning?",
+    "expected_file": "SCCP-JP-B1-BA-en-23.pdf",
+    "expected_pages": [
+      33
+    ],
+    "answerable": true
+  },
+  {
+    "id": "q18",
+    "type": "procedure",
+    "question": "How do I acknowledge a disturbance message on the Sunny Central after the cause is removed?",
+    "expected_file": "SCCP-JP-B1-BA-en-23.pdf",
+    "expected_pages": [
+      66,
+      67
+    ],
+    "answerable": true
+  },
+  {
+    "id": "q19",
+    "type": "safety",
+    "question": "What must be switched off before maintenance on the Sungrow inverter?",
+    "expected_file": "SG305HX_SG320HX-20_SG350HX-20 User Manual.pdf",
+    "expected_pages": [
+      15
+    ],
+    "answerable": true
+  },
+  {
+    "id": "q20",
+    "type": "safety",
+    "question": "On a Huawei inverter with alarm 2064, may I switch on AC or DC if the DC switch is OFF?",
+    "expected_file": "Inverter Alarm Reference.pdf",
+    "expected_pages": [
+      56
+    ],
+    "answerable": true
+  },
+  {
+    "id": "q21",
+    "type": "safety",
+    "question": "How long must I wait after switching off the Sunny Central before opening it?",
+    "expected_file": "SCCP-JP-B1-BA-en-23.pdf",
+    "expected_pages": [
+      33,
+      34,
+      78
+    ],
+    "answerable": true
+  },
+  {
+    "id": "q22",
+    "type": "safety",
+    "question": "After disconnecting the AC side of the Sunny Central, what must be verified before touching components?",
+    "expected_file": "SCCP-JP-B1-BA-en-23.pdf",
+    "expected_pages": [
+      52
+    ],
+    "answerable": true
+  },
+  {
+    "id": "q23",
+    "type": "unanswerable",
+    "question": "How do I reset error E306 on a Fronius Symo inverter?",
+    "expected_file": null,
+    "expected_pages": [],
+    "answerable": false
+  },
+  {
+    "id": "q24",
+    "type": "unanswerable",
+    "question": "What is the price of a replacement cooling fan?",
+    "expected_file": null,
+    "expected_pages": [],
+    "answerable": false
+  },
+  {
+    "id": "q25",
+    "type": "unanswerable",
+    "question": "Which Modbus register holds the daily energy yield of a SolarEdge inverter?",
+    "expected_file": null,
+    "expected_pages": [],
+    "answerable": false
+  }
+]
