@@ -30,7 +30,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
 
 
 def cmd_eval(args: argparse.Namespace) -> int:
-    index = build_index(load_documents(args.folder))
+    index = build_index(load_documents(args.folder), mode=args.mode)
     questions = load_questions(args.questions)
     res = evaluate(index, questions)
 
@@ -38,6 +38,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
         return (f"{name:<48} n={int(m['n']):<3} hit@1={m['hit@1']:.2f} hit@3={m['hit@3']:.2f} "
                 f"hit@5={m['hit@5']:.2f} MRR={m['mrr']:.2f}")
 
+    print(f"mode: {args.mode}")
     print(line("overall", res["overall"]))
     for k, m in res["by_type"].items():
         print(line(f"  type: {k}", m))
@@ -59,6 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     e = sub.add_parser("eval", help="retrieval metrics (hit@k, MRR) on eval/questions.json")
     e.add_argument("folder", nargs="?", help="folder with PDFs (default: data/raw)")
     e.add_argument("--questions", default="eval/questions.json")
+    e.add_argument("--mode", choices=["bm25", "hybrid"], default="bm25", help="retrieval mode (hybrid needs the embeddings extra)")
     e.set_defaults(func=cmd_eval)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
