@@ -1,0 +1,36 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# manufacturer manuals, derived data, indexes (copyright): local only
+data/
+chroma/
+*.pdf
+*.sqlite3
+
+# personal notes and editor settings
+CLAUDE.local.md
+.claude/settings.local.json
+.vscode/
+.idea/
+*.ipynb
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+
+# logs, caches, outputs
+*.log
+logs/
+out/
+.cache/
