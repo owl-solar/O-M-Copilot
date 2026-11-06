@@ -6,10 +6,9 @@ import logging
 
 from pathlib import Path
 
-from design_ingest.search import build_index
-
 from .corpus import load_documents, summarize
 from .evaluation import evaluate, load_questions
+from .retrieval import Retriever
 
 
 def cmd_ingest(args: argparse.Namespace) -> int:
@@ -30,7 +29,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
 
 
 def cmd_eval(args: argparse.Namespace) -> int:
-    index = build_index(load_documents(args.folder), mode=args.mode)
+    index = Retriever(load_documents(args.folder), mode=args.mode, code_lookup=not args.no_code_lookup)
     questions = load_questions(args.questions)
     res = evaluate(index, questions)
 
@@ -38,7 +37,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
         return (f"{name:<48} n={int(m['n']):<3} hit@1={m['hit@1']:.2f} hit@3={m['hit@3']:.2f} "
                 f"hit@5={m['hit@5']:.2f} MRR={m['mrr']:.2f}")
 
-    print(f"mode: {args.mode}")
+    print(f"mode: {args.mode}, code lookup: {not args.no_code_lookup}")
     print(line("overall", res["overall"]))
     for k, m in res["by_type"].items():
         print(line(f"  type: {k}", m))
@@ -61,6 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("folder", nargs="?", help="folder with PDFs (default: data/raw)")
     e.add_argument("--questions", default="eval/questions.json")
     e.add_argument("--mode", choices=["bm25", "hybrid"], default="bm25", help="retrieval mode (hybrid needs the embeddings extra)")
+    e.add_argument("--no-code-lookup", action="store_true", help="disable the exact fault-code lookup")
     e.set_defaults(func=cmd_eval)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
