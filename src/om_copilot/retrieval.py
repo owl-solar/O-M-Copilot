@@ -6,8 +6,9 @@ Embeddings blur numbers ("450" ~ "540"), so a code named in the question is look
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
 
 from design_ingest import Document
 from design_ingest.search import build_index

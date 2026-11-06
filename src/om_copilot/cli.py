@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import argparse
 import logging
-
+from collections import Counter
 from pathlib import Path
 
 from .corpus import load_documents, summarize
 from .evaluation import evaluate, load_questions
 from .retrieval import Retriever
+from .synth import code_pool, generate, write_jsonl
 
 
 def cmd_ingest(args: argparse.Namespace) -> int:
@@ -49,6 +50,16 @@ def cmd_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_synth(args: argparse.Namespace) -> int:
+    pool = code_pool(load_documents(args.folder))
+    events = generate(pool, n=args.n, seed=args.seed)
+    count = write_jsonl(events, args.out)
+    top = Counter((e.model, e.fault_code) for e in events).most_common(5)
+    print(f"{count} events from {len(pool)} codes -> {args.out} (seed {args.seed})")
+    print("top codes: " + ", ".join(f"{m} {c} x{k}" for (m, c), k in top))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="om-copilot")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -62,6 +73,12 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("--mode", choices=["bm25", "hybrid"], default="bm25", help="retrieval mode (hybrid needs the embeddings extra)")
     e.add_argument("--no-code-lookup", action="store_true", help="disable the exact fault-code lookup")
     e.set_defaults(func=cmd_eval)
+    s = sub.add_parser("synth", help="write a synthetic fault log (jsonl) using codes from the manuals")
+    s.add_argument("folder", nargs="?", help="folder with PDFs (default: data/raw)")
+    s.add_argument("-n", type=int, default=1000, help="number of events")
+    s.add_argument("--seed", type=int, default=42)
+    s.add_argument("--out", default="data/synth/faults.jsonl")
+    s.set_defaults(func=cmd_synth)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
     return args.func(args)
