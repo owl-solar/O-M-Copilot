@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 from collections import Counter
 from pathlib import Path
@@ -10,6 +11,7 @@ from .corpus import load_documents, summarize
 from .evaluation import evaluate, load_questions
 from .retrieval import Retriever
 from .synth import code_pool, generate, write_jsonl
+from .workorder import build, to_markdown
 
 
 def cmd_ingest(args: argparse.Namespace) -> int:
@@ -60,6 +62,25 @@ def cmd_synth(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_workorder(args: argparse.Namespace) -> int:
+    docs = load_documents(args.folder)
+    retriever = Retriever(docs, mode=args.mode)
+    lines = Path(args.log).read_text(encoding="utf-8").splitlines()
+    events = [json.loads(line) for line in lines if line.strip()]
+    if args.asset:
+        events = [e for e in events if e["asset_id"] == args.asset]
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    for event in events[args.skip : args.skip + args.n]:
+        wo = build(docs, event, retriever)
+        stem = f"{wo.ts.replace(':', '')}_{wo.asset_id}_{wo.fault_code}"
+        (out / f"{stem}.json").write_text(wo.model_dump_json(indent=2), encoding="utf-8")
+        (out / f"{stem}.md").write_text(to_markdown(wo), encoding="utf-8")
+        what = f"{len(wo.steps)} steps" if wo.found else "code not found"
+        print(f"{stem}: {what}, priority {wo.priority}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="om-copilot")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -79,6 +100,15 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--seed", type=int, default=42)
     s.add_argument("--out", default="data/synth/faults.jsonl")
     s.set_defaults(func=cmd_synth)
+    w = sub.add_parser("workorder", help="draft work orders (json + md) from a fault log, no LLM")
+    w.add_argument("folder", nargs="?", help="folder with PDFs (default: data/raw)")
+    w.add_argument("--log", default="data/synth/faults.jsonl")
+    w.add_argument("--asset", help="only this asset_id")
+    w.add_argument("-n", type=int, default=5, help="how many records")
+    w.add_argument("--skip", type=int, default=0)
+    w.add_argument("--out", default="data/workorders")
+    w.add_argument("--mode", choices=["bm25", "hybrid"], default="bm25")
+    w.set_defaults(func=cmd_workorder)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
     return args.func(args)
