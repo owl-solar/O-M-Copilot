@@ -4,9 +4,16 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 from collections import Counter
+from datetime import date
 from pathlib import Path
 
+from design_ingest.llm import ExternalCallBlocked
+from design_ingest.llm import summarize as llm_summary
+
+from .answer import answer, grade
+from .answer import summarize as summarize_grades
 from .corpus import load_documents, summarize
 from .evaluation import evaluate, load_questions
 from .retrieval import Retriever
@@ -81,6 +88,46 @@ def cmd_workorder(args: argparse.Namespace) -> int:
     return 0
 
 
+def _retriever(args: argparse.Namespace) -> Retriever:
+    return Retriever(load_documents(args.folder), mode=args.mode)
+
+
+def _print_answer(a) -> None:
+    print(f"found={a.found} verified={a.verified} model={a.model}")
+    print(a.answer)
+    for c in a.citations:
+        print(f"  [{c.file}, p.{c.page}] {'ok ' if c.verified else 'NOT FOUND '}\"{c.quote}\"")
+
+
+def cmd_ask(args: argparse.Namespace) -> int:
+    """One question, one paid call (needs --allow-external)."""
+    a = answer(args.question, _retriever(args), allow_external=args.allow_external or None)
+    _print_answer(a)
+    return 0 if a.verified else 1
+
+
+def cmd_eval_answers(args: argparse.Namespace) -> int:
+    """Paid: one call per answerable question and per unanswerable one. Limit with --ids / --limit."""
+    os.environ.setdefault("DESIGN_INGEST_TOKEN_BUDGET", str(args.budget))  # design-ingest stops at this many tokens/day
+    questions = load_questions(args.questions)
+    if args.ids:
+        questions = [q for q in questions if q["id"] in args.ids.split(",")]
+    questions = questions[: args.limit] if args.limit else questions
+    retriever = _retriever(args)
+    grades = []
+    for q in questions:
+        a = answer(q["question"], retriever, allow_external=args.allow_external or None)
+        g = grade(q, a)
+        grades.append(g)
+        print(f"{q['id']} {'PASS' if g['ok'] else 'FAIL'} {({k: v for k, v in g.items() if k not in ('id', 'ok')})}")
+        if args.show or not g["ok"]:
+            _print_answer(a)
+    print(json.dumps(summarize_grades(grades), indent=1))
+    today = llm_summary()["per_day"].get(date.today().isoformat(), {})
+    print(f"llm today (all runs): {today}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="om-copilot")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -109,9 +156,28 @@ def main(argv: list[str] | None = None) -> int:
     w.add_argument("--out", default="data/workorders")
     w.add_argument("--mode", choices=["bm25", "hybrid"], default="bm25")
     w.set_defaults(func=cmd_workorder)
+    for name, helptext, fn in (("ask", "answer one question with checked citations (paid call)", cmd_ask),
+                               ("eval-answers", "answer eval questions and grade them (paid calls)", cmd_eval_answers)):
+        p2 = sub.add_parser(name, help=helptext)
+        if name == "ask":
+            p2.add_argument("question")
+        else:
+            p2.add_argument("--questions", default="eval/questions.json")
+            p2.add_argument("--ids", help="comma separated question ids, e.g. q01,q02")
+            p2.add_argument("--limit", type=int, help="only the first N questions")
+            p2.add_argument("--budget", type=int, default=200_000, help="token cap for the day (design-ingest)")
+            p2.add_argument("--show", action="store_true", help="print passing answers too")
+        p2.add_argument("--folder", help="folder with PDFs (default: data/raw)")
+        p2.add_argument("--mode", choices=["bm25", "hybrid"], default="hybrid")
+        p2.add_argument("--allow-external", action="store_true", help="allow the paid call to the model")
+        p2.set_defaults(func=fn)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
-    return args.func(args)
+    try:
+        return args.func(args)
+    except ExternalCallBlocked as e:
+        print(f"blocked: {e}")
+        return 2
 
 
 if __name__ == "__main__":
