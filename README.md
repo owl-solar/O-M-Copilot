@@ -65,4 +65,4 @@ A code that is not in the manual of that model gives an order with no steps and 
 
 ## Licence
 
-To be added before the repository is made public.
+MIT, see [LICENSE](LICENSE). The manufacturer manuals are not covered by it and are not part of this repository.
