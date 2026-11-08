@@ -4,6 +4,8 @@
 
 ![A draft work order: priority with its reasons, respond-by time, steps with file and page, a Helped / Did not work button under each step](docs/img/ui-work-order.png)
 
+[![CI](https://github.com/owl-solar/O-M-Copilot/actions/workflows/ci.yml/badge.svg)](https://github.com/owl-solar/O-M-Copilot/actions/workflows/ci.yml)
+
 Status: working CLI, demo page (Streamlit) and MCP server; evaluated on 25 questions over three manuals from three manufacturers.
 
 ## What it does
