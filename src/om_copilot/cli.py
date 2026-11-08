@@ -18,6 +18,9 @@ from .baseline import ask_baseline, build_context, cost_usd
 from .corpus import load_documents, summarize
 from .evaluation import evaluate, load_questions
 from .events import group, read_log
+from .export import load_orders
+from .export import write_csv as write_orders_csv
+from .export import write_json as write_orders_json
 from .manuals import add_manual, format_report, inspect
 from .retrieval import Retriever
 from .synth import code_pool, generate, write_csv, write_jsonl
@@ -87,7 +90,7 @@ def cmd_workorder(args: argparse.Namespace) -> int:
     out.mkdir(parents=True, exist_ok=True)
     for event in events[args.skip : args.skip + args.n]:
         wo = build(docs, event, retriever)
-        stem = f"{wo.ts.replace(':', '')}_{wo.asset_id}_{wo.fault_code}"
+        stem = wo.id
         (out / f"{stem}.json").write_text(wo.model_dump_json(indent=2), encoding="utf-8")
         (out / f"{stem}.md").write_text(to_markdown(wo), encoding="utf-8")
         what = f"{len(wo.steps)} steps" if wo.found else "code not found"
@@ -113,6 +116,21 @@ def cmd_incidents(args: argparse.Namespace) -> int:
         out.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
         print(f"-> {out}")
     return 0 if report.events else 1
+
+
+def cmd_export(args: argparse.Namespace) -> int:
+    """Work orders (JSON files) -> one CSV and one JSON for a maintenance system."""
+    orders, skipped = load_orders(args.folder)
+    if skipped:
+        print(f"skipped {len(skipped)} files that are not valid work orders (older format?): {', '.join(skipped[:3])} ...")
+    if not orders:
+        print(f"no work orders in {args.folder}")
+        return 1
+    out = Path(args.out)
+    n = write_orders_csv(orders, out.with_suffix(".csv"), delimiter=args.delimiter)
+    write_orders_json(orders, out.with_suffix(".json"))
+    print(f"{n} work orders -> {out.with_suffix('.csv')} and {out.with_suffix('.json')}")
+    return 0
 
 
 def _retriever(args: argparse.Namespace) -> Retriever:
@@ -252,6 +270,11 @@ def main(argv: list[str] | None = None) -> int:
     w.add_argument("--out", default="data/workorders")
     w.add_argument("--mode", choices=["bm25", "hybrid"], default="bm25")
     w.set_defaults(func=cmd_workorder)
+    x = sub.add_parser("export", help="work orders -> CSV and JSON for a maintenance system (CMMS)")
+    x.add_argument("folder", nargs="?", default="data/workorders", help="folder with work order JSON files")
+    x.add_argument("--out", default="data/export/workorders", help="path without extension")
+    x.add_argument("--delimiter", default=",", help="CSV delimiter, ';' for Excel with a regional setting")
+    x.set_defaults(func=cmd_export)
     i = sub.add_parser("incidents", help="fault log (CSV/JSONL) -> incidents: merge alarm storms, mark repeats")
     i.add_argument("log", help="CSV or JSONL fault log")
     i.add_argument("--model", help="model label when the CSV has no model column")

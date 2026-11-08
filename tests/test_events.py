@@ -72,7 +72,7 @@ def test_synth_has_storms_and_chronic_repeats():
 
 def test_repeat_raises_priority_one_level_and_shows_in_markdown():
     assert [config.escalate(p) for p in ("P3", "P2", "P1", "high")] == ["P2", "P1", "P1", "high"]
-    wo = WorkOrder(ts="t", asset_id="INV-01", site="S", model="M", fault_code=1, found=True, occurrences=4,
+    wo = WorkOrder(id="x", ts="t", asset_id="INV-01", site="S", model="M", fault_code=1, found=True, occurrences=4,
                    last_ts="t2", repeated=True, prior_incidents=2)
     md = to_markdown(wo)
     assert "Alarms merged: 4" in md and "REPEAT" in md

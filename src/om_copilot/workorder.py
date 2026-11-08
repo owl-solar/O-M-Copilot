@@ -66,8 +66,14 @@ class Item(BaseModel):
     source: Source
 
 
+def work_order_id(ts: str, asset_id: str, fault_code: int) -> str:
+    """Stable id, also the file name: time without colons, asset, code."""
+    return f"{ts.replace(':', '')}_{asset_id}_{fault_code}"
+
+
 class WorkOrder(BaseModel):
     draft: bool = True
+    id: str
     ts: str
     asset_id: str
     site: str
@@ -87,6 +93,11 @@ class WorkOrder(BaseModel):
     steps: list[Item] = []
     safety: list[Item] = []
     note: str | None = None
+    manual_sha256: str | None = None  # which exact file the steps were taken from
+    status: str = "draft"  # draft -> approved -> done, set by people, never by this tool
+    assignee: str | None = None
+    approved_by: str | None = None
+    work_done: str | None = None
 
 
 def find_record(docs: Iterable[Document], model: str, code: int) -> tuple[Document, dict[str, Any]] | None:
@@ -113,6 +124,7 @@ def build(docs: list[Document], event: dict[str, Any], retriever: Any | None = N
     """Work order for one log record (keys ts, asset_id, model, fault_code, site)."""
     base = {"ts": event["ts"], "asset_id": event["asset_id"], "site": event["site"], "model": event["model"],
             "fault_code": int(event["fault_code"])}
+    base["id"] = work_order_id(base["ts"], base["asset_id"], base["fault_code"])
     found = find_record(docs, base["model"], base["fault_code"])
     if found is None:
         log.warning("fault %s of %s not found in the manuals", base["fault_code"], base["model"])
@@ -141,6 +153,7 @@ def build(docs: list[Document], event: dict[str, Any], retriever: Any | None = N
     return WorkOrder(**base, found=True, fault_name=rec.get("name"), severity=severity,
                      priority=priority, priority_reasons=reasons, rated_kw=kw, respond_by=respond_by, occurrences=int(event.get("occurrences", 1)), last_ts=event.get("last_ts"),
                      repeated=repeated, prior_incidents=int(event.get("prior_incidents", 0)),
+                     manual_sha256=getattr(doc, "sha256", None),
                      steps=steps, safety=safety,
                      note=None if steps else "The manual lists no corrective measures for this code.")
 
@@ -152,7 +165,7 @@ def _cite(s: Source) -> str:
 
 def to_markdown(wo: WorkOrder) -> str:
     head = f"# Work order (DRAFT): {wo.asset_id}, fault {wo.fault_code}"
-    lines = [head, "",
+    lines = [head, "", f"- ID: {wo.id}",
              f"- Asset: {wo.asset_id} ({wo.model}), site {wo.site}",
              f"- Reported: {wo.ts}",
              f"- Fault: {wo.fault_code}" + (f" {wo.fault_name}" if wo.fault_name else ""),

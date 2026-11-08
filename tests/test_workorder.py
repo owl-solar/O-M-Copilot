@@ -65,3 +65,24 @@ def test_priority_explains_itself_and_sla_follows_final_priority(monkeypatch, tm
     assert big.priority == "P1" and big.rated_kw == 2000 and big.respond_by == "2026-01-02T02:00"
     assert [r.split(" -> ")[1] for r in big.priority_reasons] == ["P2", "P1", "P1"]
     assert "rated 2000 kW" in to_markdown(big) and "Respond by: 2026-01-02T02:00" in to_markdown(big)
+
+
+def test_export_row_has_audit_fields_and_people_fields_stay_empty(tmp_path):
+    import csv
+
+    from om_copilot.export import COLUMNS, load_orders, write_csv
+
+    doc = SimpleNamespace(filename=DOC.filename, data=DOC.data, sha256="abc123")
+    wo = build([doc], EVENT)
+    assert wo.id == "2026-01-02T000000_INV-15_2001" and wo.manual_sha256 == "abc123" and wo.status == "draft"
+    (tmp_path / f"{wo.id}.json").write_text(wo.model_dump_json(), encoding="utf-8")
+    (tmp_path / "old.json").write_text('{"ts": "x"}', encoding="utf-8")
+    orders, skipped = load_orders(tmp_path)
+    assert skipped == ["old.json"]
+    assert write_csv(orders, tmp_path / "o.csv", delimiter=";") == 1
+    with (tmp_path / "o.csv").open(encoding="utf-8-sig", newline="") as f:
+        row = next(csv.DictReader(f, delimiter=";"))
+    assert list(row) == list(COLUMNS)
+    assert row["manual_sha256"] == "abc123" and row["manual_pages"] == "12,15" and row["priority"] == "P2"
+    assert "1. Check the string layout. [p.12-15]" in row["steps"]
+    assert row["assignee"] == row["approved_by"] == row["work_done"] == "" and row["repeat"] == "no"

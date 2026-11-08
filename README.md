@@ -67,6 +67,7 @@ om-copilot synth -n 1000 --seed 42        # synthetic fault log in data/synth/ (
 om-copilot synth --csv data/synth/faults.csv   # the same log as a SCADA-style CSV (; separated, day.month.year)
 om-copilot incidents data/synth/faults.csv     # 1000 events -> incidents: alarm storms merged, repeats marked
 om-copilot workorder -n 5                 # draft work orders (JSON + markdown), no LLM, free
+om-copilot export                         # all work orders -> one CSV and one JSON for a maintenance system
 om-copilot ask "SG350HX shows fault 39. What should I check?" --allow-external      # one paid call
 om-copilot eval-answers --allow-external  # 25 paid calls, about 1.5 cents with claude-haiku-5-5
 ```
@@ -160,6 +161,8 @@ A SCADA export is a stream of alarms, not a list of jobs. `om-copilot incidents`
 - **Marks repeats.** The third incident of the same code on the same inverter within 30 days is a repeat: the order says so and its priority goes up one level. All three numbers are in `config_default.json` (`grouping`).
 
 **Priority explains itself.** Each work order lists how its priority came about, step by step: severity printed in the manual, then a raise by one level for a large inverter (rated power at or above `capacity.escalate_from_kw`, 1000 kW by default), then a raise for a repeat. The order also carries a "respond by" time from the SLA table (`sla_hours`: P1 4 h, P2 24 h, P3 72 h). Rated powers in `config_default.json` are example values: put your own per model or per inverter id under `rated_kw` in `data/config.local.json`.
+
+**Export and audit.** `om-copilot export` writes one flat CSV row per work order (and the full JSON) for a maintenance system (CMMS). The columns are generic, not the import format of one product; map them in the target system. Every order carries a stable id, the file name and pages of the manual it comes from and the sha256 of that exact file, so a step can be traced to a document version. Status stays `draft`; assignee, approval and "work done" are empty on purpose: people fill them in, the tool never does. Use `--delimiter ";"` for Excel with a regional setting.
 
 On the synthetic log (seed 42, 1000 events) this gives 818 incidents, 166 of them repeats. The log is generated, so the ratio shows the mechanism and says nothing about a real plant.
 
