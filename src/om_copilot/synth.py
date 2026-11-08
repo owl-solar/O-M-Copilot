@@ -15,10 +15,9 @@ from pathlib import Path
 
 from design_ingest import Document
 
+from .config import model_of
 from .retrieval import _ranges
 
-# Product family label per manual: matched by a word in the file name (case-insensitive).
-FAMILIES = (("sg3", "SG350HX-20"), ("alarm reference", "SUN2000"), ("sccp", "Sunny Central"))
 SITES = ("Site A", "Site B", "Site C", "Site D")
 START = datetime(2026, 1, 1)
 DAYS = 180
@@ -42,11 +41,8 @@ class FaultEvent:
 
 
 def family_of(filename: str) -> str:
-    name = filename.lower()
-    for key, label in FAMILIES:
-        if key in name:
-            return label
-    return Path(filename).stem
+    """Model label of a manual (see config.py)."""
+    return model_of(filename)
 
 
 def code_pool(docs: Iterable[Document]) -> list[CodeRef]:

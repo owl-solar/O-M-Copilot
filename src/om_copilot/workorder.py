@@ -13,14 +13,13 @@ from typing import Any
 from design_ingest import Document
 from pydantic import BaseModel
 
+from . import config
 from .retrieval import _ranges
 from .synth import family_of
 
 log = logging.getLogger(__name__)
 
-# Priority from the severity printed in the manual (lowercase). Manuals without severity -> DEFAULT.
-PRIORITY = {"critical": "P1", "major": "P2", "warning/major": "P2", "minor": "P3", "warning": "P3"}
-DEFAULT_PRIORITY = "P3"
+DEFAULT_PRIORITY = "P3"  # priority table: severity printed in the manual -> P1..P3, see config.py
 SAFETY_QUERY = "safety warning danger power off disconnect before maintenance"
 SAFETY_EXCERPT_CHARS = 400
 SAFETY_LABEL = re.compile(r"\b(danger|warning|caution)\b", re.IGNORECASE)
@@ -94,7 +93,7 @@ def find_record(docs: Iterable[Document], model: str, code: int) -> tuple[Docume
 
 
 def priority_of(severity: str | None) -> str:
-    return PRIORITY.get((severity or "").strip().lower(), DEFAULT_PRIORITY)
+    return config.priority_of(severity)
 
 
 def _source(doc: Document, rec: dict[str, Any]) -> Source:

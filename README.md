@@ -21,7 +21,7 @@ Status: working CLI, evaluated on 25 questions over three manuals. See [PLAN.md]
 
 | Step | Method | Needs a model call? | What it gives |
 |---|---|---|---|
-| Read the PDFs, extract fault-code tables | Deterministic parsing (design-ingest) | No | Same result every run; 213 fault-code records from three manuals |
+| Read the PDFs, extract fault-code tables | Deterministic parsing (design-ingest) | No | Same result every run; 212 fault-code records from three manuals |
 | Find a fault code named in the question | Exact lookup by number | No | Numbers are matched exactly, never "close enough" |
 | Find passages by words | BM25 keyword search | No (offline) | Fast, explainable; strong on part names and exact terms |
 | Find passages by meaning | Small local embedding model (bge-small, 64 MB) | No (runs on your machine) | Finds a passage when the question uses different words than the manual |
@@ -57,6 +57,8 @@ External model calls are off by default (design-ingest guard); they need an expl
 ## Use
 
 ```bash
+om-copilot add-manual FILE.pdf --model ABC-1000   # add your own manual (see below)
+om-copilot manuals                        # list the manuals with model label, fault codes, warnings
 om-copilot ingest                         # parse the manuals, count pages and fault codes
 om-copilot eval --mode hybrid             # retrieval metrics (free, offline)
 om-copilot synth -n 1000 --seed 42        # synthetic fault log in data/synth/ (codes from the manuals)
@@ -64,6 +66,34 @@ om-copilot workorder -n 5                 # draft work orders (JSON + markdown),
 om-copilot ask "SG350HX shows fault 39. What should I check?" --allow-external      # one paid call
 om-copilot eval-answers --allow-external  # 25 paid calls, about 1.5 cents with claude-haiku-5-5
 ```
+
+## Add your own manual
+
+Manuals of other manufacturers or models work the same way as the three used for the evaluation.
+
+1. **Add it:** `om-copilot add-manual "C:path	oManual.pdf" --model ABC-1000`.
+   The PDF is copied to `data/raw/`, read, and checked; the model label (`ABC-1000`, the value your fault
+   log has in `model`) is saved in `data/config.local.json` (git-ignored). Without `--model` the file name is used.
+2. **Read the report.** It shows pages, fault codes found and what needs attention:
+   - fault codes > 0: questions, exact code lookup and work orders all work for this manual;
+   - severity words the priority table does not know: add them under `"priority"` in `data/config.local.json`,
+     for example `{"priority": {"severe": "P1"}}` (unknown words get P3);
+   - 0 fault codes: see below.
+3. **See everything at once:** `om-copilot manuals` lists all manuals with label, codes and warnings.
+4. **Note the source** in `docs/sources.md` (the command prints the line with the sha256). Do not commit the PDF.
+
+Then use it: `om-copilot ask "..."`, `om-copilot workorder` with a fault log whose `model` is the label.
+One manual that covers a whole series (for example three inverter sizes) gets one label; a different series
+with its own manual gets its own. The same code number in two manuals is fine: work orders look it up in the
+manual of the record's model.
+
+**If no fault codes were found.** Free questions still work through text search, but the exact code lookup
+and work orders do not. Fault-code tables are recognised by headings such as Fault Code / Fault Name /
+Corrective Measures (also Error, Alarm, Remedy, Action) and by ruled rows. A different layout needs a reader in
+[design-ingest](https://github.com/owl-solar/design-ingest) (add it there with a test, release a tag, raise the
+pin in `pyproject.toml`); it is deliberately not worked around here.
+
+Limits: English manuals only for now, PDFs with a text layer (no scans).
 
 ## Results (three manuals: Sungrow string, Huawei alarm reference, SMA utility inverter)
 

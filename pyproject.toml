@@ -29,3 +29,6 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 110
+
+[tool.setuptools.package-data]
+om_copilot = ["config_default.json"]

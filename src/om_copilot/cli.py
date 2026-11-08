@@ -16,6 +16,7 @@ from .answer import answer, grade
 from .answer import summarize as summarize_grades
 from .corpus import load_documents, summarize
 from .evaluation import evaluate, load_questions
+from .manuals import add_manual, format_report, inspect
 from .retrieval import Retriever
 from .synth import code_pool, generate, write_jsonl
 from .workorder import build, to_markdown
@@ -128,9 +129,41 @@ def cmd_eval_answers(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_manuals(args: argparse.Namespace) -> int:
+    """List the manuals in the folder with model label, fault codes and what needs attention."""
+    docs = load_documents(args.folder)
+    if not docs:
+        print("no supported files found")
+        return 1
+    for doc in docs:
+        print(format_report(inspect(doc)))
+    return 0
+
+
+def cmd_add_manual(args: argparse.Namespace) -> int:
+    """Add a manual: copy it to the manuals folder, read it, remember its model label."""
+    try:
+        doc, info, dest = add_manual(args.file, args.model)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"cannot add: {e}")
+        return 1
+    print(format_report(info))
+    print(f"\nstored: {dest}")
+    print(f"model label saved for '{dest.stem.lower()}' -> {info['model']}")
+    print(f"for docs/sources.md: {doc.filename} | version: ? | where downloaded: ? | sha256 {doc.sha256}")
+    return 0 if info["fault_codes"] else 2
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="om-copilot")
     sub = parser.add_subparsers(dest="command", required=True)
+    m = sub.add_parser("manuals", help="list the manuals with model label, fault codes and warnings")
+    m.add_argument("folder", nargs="?", help="folder with PDFs (default: data/raw)")
+    m.set_defaults(func=cmd_manuals)
+    a = sub.add_parser("add-manual", help="add a manual: copy, read, check, save its model label")
+    a.add_argument("file", help="path to the PDF")
+    a.add_argument("--model", help="model label used in fault logs, e.g. ABC-1000 (default: file name)")
+    a.set_defaults(func=cmd_add_manual)
     p = sub.add_parser("ingest", help="parse the manuals and print what was found")
     p.add_argument("folder", nargs="?", help="folder with PDFs (default: data/raw)")
     p.add_argument("--warnings", action="store_true", help="print parser warnings")

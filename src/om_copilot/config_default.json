@@ -1,0 +1,9 @@
+{
+  "models": [
+    {"match": "sg3", "model": "SG350HX-20"},
+    {"match": "alarm reference", "model": "SUN2000"},
+    {"match": "sccp", "model": "Sunny Central"}
+  ],
+  "priority": {"critical": "P1", "major": "P2", "warning/major": "P2", "minor": "P3", "warning": "P3"},
+  "default_priority": "P3"
+}
