@@ -35,6 +35,9 @@ def _merged(local: str) -> dict[str, Any]:
         "models": mine.get("models", []) + default.get("models", []),
         "priority": {**default.get("priority", {}), **mine.get("priority", {})},
         "default_priority": mine.get("default_priority", default.get("default_priority", "P3")),
+        "grouping": {**default.get("grouping", {}), **mine.get("grouping", {})},
+        # column aliases of a log file: your names first, then the shipped ones
+        "log_columns": {k: mine.get("log_columns", {}).get(k, []) + v for k, v in default.get("log_columns", {}).items()},
     }
 
 
@@ -54,6 +57,13 @@ def model_of(filename: str) -> str:
 def priority_of(severity: str | None) -> str:
     cfg = load()
     return cfg["priority"].get((severity or "").strip().lower(), cfg["default_priority"])
+
+
+def escalate(priority: str) -> str:
+    """One level more urgent: P3 -> P2 -> P1 (P1 stays)."""
+    if len(priority) == 2 and priority[0] == "P" and priority[1].isdigit():
+        return f"P{max(1, int(priority[1]) - 1)}"
+    return priority
 
 
 def register_model(match: str, model: str) -> Path:

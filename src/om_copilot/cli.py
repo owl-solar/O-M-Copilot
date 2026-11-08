@@ -17,9 +17,10 @@ from .answer import summarize as summarize_grades
 from .baseline import ask_baseline, build_context, cost_usd
 from .corpus import load_documents, summarize
 from .evaluation import evaluate, load_questions
+from .events import group, read_log
 from .manuals import add_manual, format_report, inspect
 from .retrieval import Retriever
-from .synth import code_pool, generate, write_jsonl
+from .synth import code_pool, generate, write_csv, write_jsonl
 from .workorder import build, to_markdown
 
 
@@ -67,6 +68,8 @@ def cmd_synth(args: argparse.Namespace) -> int:
     count = write_jsonl(events, args.out)
     top = Counter((e.model, e.fault_code) for e in events).most_common(5)
     print(f"{count} events from {len(pool)} codes -> {args.out} (seed {args.seed})")
+    if args.csv:
+        print(f"{write_csv(events, args.csv)} events as a SCADA-style CSV -> {args.csv}")
     print("top codes: " + ", ".join(f"{m} {c} x{k}" for (m, c), k in top))
     return 0
 
@@ -74,10 +77,12 @@ def cmd_synth(args: argparse.Namespace) -> int:
 def cmd_workorder(args: argparse.Namespace) -> int:
     docs = load_documents(args.folder)
     retriever = Retriever(docs, mode=args.mode)
-    lines = Path(args.log).read_text(encoding="utf-8").splitlines()
-    events = [json.loads(line) for line in lines if line.strip()]
+    report = read_log(args.log, args.model)
+    events = report.events if args.no_group else group(report.events)
     if args.asset:
         events = [e for e in events if e["asset_id"] == args.asset]
+    if args.repeated:
+        events = [e for e in events if e.get("repeated")]
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     for event in events[args.skip : args.skip + args.n]:
@@ -88,6 +93,26 @@ def cmd_workorder(args: argparse.Namespace) -> int:
         what = f"{len(wo.steps)} steps" if wo.found else "code not found"
         print(f"{stem}: {what}, priority {wo.priority}")
     return 0
+
+
+def cmd_incidents(args: argparse.Namespace) -> int:
+    """Read a fault log (CSV or JSONL), merge alarm storms into incidents, mark repeats."""
+    report = read_log(args.log, args.model)
+    print(f"read {len(report.events)} events, skipped {len(report.skipped)}; columns: {report.columns or 'jsonl'}")
+    for msg in report.skipped[:5]:
+        print(f"  skipped {msg}")
+    incidents = group(report.events)
+    repeated = [i for i in incidents if i["repeated"]]
+    print(f"{len(report.events)} events -> {len(incidents)} incidents ({len(repeated)} repeats)")
+    worst = Counter((i["model"], i["asset_id"], i["fault_code"]) for i in incidents).most_common(3)
+    print("most incidents: " + ", ".join(f"{a} code {c} x{k}" for (_m, a, c), k in worst))
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        lines = [json.dumps(i, ensure_ascii=False) for i in incidents]
+        out.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+        print(f"-> {out}")
+    return 0 if report.events else 1
 
 
 def _retriever(args: argparse.Namespace) -> Retriever:
@@ -213,16 +238,25 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("-n", type=int, default=1000, help="number of events")
     s.add_argument("--seed", type=int, default=42)
     s.add_argument("--out", default="data/synth/faults.jsonl")
+    s.add_argument("--csv", help="also write a SCADA-style CSV here, e.g. data/synth/faults.csv")
     s.set_defaults(func=cmd_synth)
     w = sub.add_parser("workorder", help="draft work orders (json + md) from a fault log, no LLM")
     w.add_argument("folder", nargs="?", help="folder with PDFs (default: data/raw)")
-    w.add_argument("--log", default="data/synth/faults.jsonl")
+    w.add_argument("--log", default="data/synth/faults.jsonl", help="CSV or JSONL fault log")
+    w.add_argument("--model", help="model label when the CSV has no model column")
+    w.add_argument("--no-group", action="store_true", help="one work order per raw event")
+    w.add_argument("--repeated", action="store_true", help="only incidents that are repeats")
     w.add_argument("--asset", help="only this asset_id")
     w.add_argument("-n", type=int, default=5, help="how many records")
     w.add_argument("--skip", type=int, default=0)
     w.add_argument("--out", default="data/workorders")
     w.add_argument("--mode", choices=["bm25", "hybrid"], default="bm25")
     w.set_defaults(func=cmd_workorder)
+    i = sub.add_parser("incidents", help="fault log (CSV/JSONL) -> incidents: merge alarm storms, mark repeats")
+    i.add_argument("log", help="CSV or JSONL fault log")
+    i.add_argument("--model", help="model label when the CSV has no model column")
+    i.add_argument("--out", help="write incidents as jsonl")
+    i.set_defaults(func=cmd_incidents)
     b = sub.add_parser("eval-baseline", help="comparison: all manuals in the model context, no retrieval (paid)")
     b.add_argument("--questions", default="eval/questions.json")
     b.add_argument("--ids")

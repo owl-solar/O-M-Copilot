@@ -6,6 +6,7 @@ inverters of one site, same code, within minutes: lightning, grid trouble). Same
 """
 from __future__ import annotations
 
+import csv
 import json
 import random
 from collections.abc import Iterable
@@ -56,8 +57,13 @@ def code_pool(docs: Iterable[Document]) -> list[CodeRef]:
     return pool
 
 
-def generate(pool: list[CodeRef], n: int = 1000, seed: int = 42, cluster_share: float = 0.25) -> list[FaultEvent]:
-    """``n`` events sorted by time. ``pool`` must not be empty."""
+def generate(pool: list[CodeRef], n: int = 1000, seed: int = 42, cluster_share: float = 0.25,
+             storm_share: float = 0.2, chronic: int = 3) -> list[FaultEvent]:
+    """``n`` events sorted by time. ``pool`` must not be empty.
+
+    Besides clusters (many inverters, one code) there are alarm storms (one inverter repeats one code within
+    hours, ``storm_share`` of the events) and ``chronic`` inverters that bring the same code back every few days.
+    """
     if not pool:
         raise ValueError("empty code pool: no fault codes found in the manuals")
     rng = random.Random(seed)
@@ -89,6 +95,19 @@ def generate(pool: list[CodeRef], n: int = 1000, seed: int = 42, cluster_share: 
         for asset in rng.sample(members, k=min(len(members), rng.randint(3, 6))):
             add(ref, asset, t0 + timedelta(seconds=rng.randrange(1800)))
     del events[n_cluster:]
+    for _ in range(chronic):
+        ref = rng.choices(ranked, weights)[0]
+        asset = rng.choice(fleet[ref.model])
+        t0 = moment() - timedelta(days=60)
+        for k in range(rng.randint(4, 6)):
+            add(ref, asset, max(START, t0) + timedelta(days=k * rng.randint(3, 8), seconds=rng.randrange(3600)))
+    n_storm = len(events) + int(n * storm_share)
+    while len(events) < n_storm:
+        ref = rng.choices(ranked, weights)[0]
+        asset, t0 = rng.choice(fleet[ref.model]), moment()
+        for _ in range(rng.randint(3, 12)):
+            add(ref, asset, t0 + timedelta(seconds=rng.randrange(3 * 3600)))
+    del events[n:]
     while len(events) < n:
         ref = rng.choices(ranked, weights)[0]
         add(ref, rng.choice(fleet[ref.model]), moment())
@@ -102,5 +121,23 @@ def write_jsonl(events: Iterable[FaultEvent], path: str | Path) -> int:
     with path.open("w", encoding="utf-8", newline="\n") as f:
         for e in events:
             f.write(json.dumps(asdict(e), ensure_ascii=False) + "\n")
+            count += 1
+    return count
+
+
+CSV_HEADER = ("Timestamp", "Plant", "Device", "Device Type", "Alarm No.")  # looks like a SCADA export
+
+
+def write_csv(events: Iterable[FaultEvent], path: str | Path) -> int:
+    """Same events with SCADA-style column names and day.month.year times, to test the importer."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    count = 0
+    with path.open("w", encoding="utf-8", newline="") as f:
+        out = csv.writer(f, delimiter=";")
+        out.writerow(CSV_HEADER)
+        for e in events:
+            when = datetime.fromisoformat(e.ts).strftime("%d.%m.%Y %H:%M:%S")
+            out.writerow((when, e.site, e.asset_id, e.model, e.fault_code))
             count += 1
     return count

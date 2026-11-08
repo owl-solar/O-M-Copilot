@@ -76,6 +76,10 @@ class WorkOrder(BaseModel):
     fault_name: str | None = None
     severity: str | None = None
     priority: str = DEFAULT_PRIORITY
+    occurrences: int = 1  # raw alarms merged into this work order
+    last_ts: str | None = None
+    repeated: bool = False  # same code came back on this inverter (see events.group)
+    prior_incidents: int = 0
     steps: list[Item] = []
     safety: list[Item] = []
     note: str | None = None
@@ -115,8 +119,14 @@ def build(docs: list[Document], event: dict[str, Any], retriever: Any | None = N
     steps = [Item(n=i, text=NUMBERING.sub("", m), source=src) for i, m in enumerate(rec.get("measures") or [], 1)]
     safety = _safety(retriever, doc) if retriever is not None else []
     severity = rec.get("severity")
+    priority = priority_of(severity)
+    repeated = bool(event.get("repeated"))
+    if repeated:
+        priority = config.escalate(priority)
     return WorkOrder(**base, found=True, fault_name=rec.get("name"), severity=severity,
-                     priority=priority_of(severity), steps=steps, safety=safety,
+                     priority=priority, occurrences=int(event.get("occurrences", 1)), last_ts=event.get("last_ts"),
+                     repeated=repeated, prior_incidents=int(event.get("prior_incidents", 0)),
+                     steps=steps, safety=safety,
                      note=None if steps else "The manual lists no corrective measures for this code.")
 
 
@@ -132,6 +142,11 @@ def to_markdown(wo: WorkOrder) -> str:
              f"- Reported: {wo.ts}",
              f"- Fault: {wo.fault_code}" + (f" {wo.fault_name}" if wo.fault_name else ""),
              f"- Priority: {wo.priority}" + (f" (manual severity: {wo.severity})" if wo.severity else "")]
+    if wo.occurrences > 1:
+        lines.append(f"- Alarms merged: {wo.occurrences} (last at {wo.last_ts})")
+    if wo.repeated:
+        lines.append(f"- REPEAT: the same code came back on this inverter ({wo.prior_incidents} earlier incidents "
+                     "in the review period), priority raised one level")
     if wo.note:
         lines += ["", f"> {wo.note}"]
     if wo.safety:

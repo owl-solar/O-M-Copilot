@@ -5,5 +5,13 @@
     {"match": "sccp", "model": "Sunny Central"}
   ],
   "priority": {"critical": "P1", "major": "P2", "warning/major": "P2", "minor": "P3", "warning": "P3"},
-  "default_priority": "P3"
+  "default_priority": "P3",
+  "grouping": {"window_hours": 6, "repeat_days": 30, "repeat_min": 3},
+  "log_columns": {
+    "ts": ["ts", "timestamp", "time", "event time", "date time", "datetime", "alarm time"],
+    "asset_id": ["asset_id", "device", "device name", "inverter", "asset", "equipment"],
+    "model": ["model", "device type", "inverter model", "type"],
+    "fault_code": ["fault_code", "alarm no.", "alarm id", "alarm code", "fault code", "code", "error code"],
+    "site": ["site", "plant", "plant name", "station"]
+  }
 }

@@ -64,6 +64,8 @@ om-copilot manuals                        # list the manuals with model label, f
 om-copilot ingest                         # parse the manuals, count pages and fault codes
 om-copilot eval --mode hybrid             # retrieval metrics (free, offline)
 om-copilot synth -n 1000 --seed 42        # synthetic fault log in data/synth/ (codes from the manuals)
+om-copilot synth --csv data/synth/faults.csv   # the same log as a SCADA-style CSV (; separated, day.month.year)
+om-copilot incidents data/synth/faults.csv     # 1000 events -> incidents: alarm storms merged, repeats marked
 om-copilot workorder -n 5                 # draft work orders (JSON + markdown), no LLM, free
 om-copilot ask "SG350HX shows fault 39. What should I check?" --allow-external      # one paid call
 om-copilot eval-answers --allow-external  # 25 paid calls, about 1.5 cents with claude-haiku-5-5
@@ -148,6 +150,16 @@ to ground of the string and DC cable, and the battery cables; contact the manufa
 **Question the manuals do not answer** ("... Fronius Symo error E306 ..."): `found=False`, no citations. The model says the passages contain no such code and names what is missing instead of guessing.
 
 **Work order** (`om-copilot workorder -n 5`): for a Sungrow record with fault 1600 the order has priority P3 (the manual gives no severity), two safety excerpts (pp. 137 and 15) and four steps from p.134, each in the manual's own words with its page. Files: one JSON and one markdown per record.
+
+## From a raw fault log to work orders
+
+A SCADA export is a stream of alarms, not a list of jobs. `om-copilot incidents` (and `workorder`) reads a CSV or JSONL and:
+
+- **Matches columns by name.** `Timestamp`, `Device`, `Device Type`, `Alarm No.`, `Plant` and similar names are recognised; add your own names under `log_columns` in `data/config.local.json`. Rows that cannot be read are counted and listed, never dropped silently.
+- **Merges alarm storms.** The same code on the same inverter within 6 hours is one incident, so one work order, with the number of merged alarms.
+- **Marks repeats.** The third incident of the same code on the same inverter within 30 days is a repeat: the order says so and its priority goes up one level. All three numbers are in `config_default.json` (`grouping`).
+
+On the synthetic log (seed 42, 1000 events) this gives 818 incidents, 166 of them repeats. The log is generated, so the ratio shows the mechanism and says nothing about a real plant.
 
 ## Draft work order (format)
 
