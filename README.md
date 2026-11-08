@@ -22,6 +22,10 @@ You can use it from the command line, from a browser page, or from an AI agent (
 
 The demo page (`om-copilot ui`) runs locally on a synthetic fault log. Screenshots show a few lines of one manufacturer's fault table exactly as the tool prints them; the manual itself is copyrighted by its owner and is not in this repository.
 
+**The incident list.** One thousand synthetic alarms become 818 incidents: 182 alarms were merged into storms and 166 incidents are repeats. The table is sorted by priority, then by respond-by time, and can be filtered by model and site.
+
+![Incident list with counters, filters and a table sorted by priority](docs/img/ui-incidents.png)
+
 **An incident with a repeat.** Priority P1 and the reason: the manual rates the fault Major (P2) and the repeat on this inverter raises it one level. "Respond by" is the reported time plus the SLA of the final priority (P1: 4 hours). Every step names its file and page.
 
 (The picture at the top of this page.)
