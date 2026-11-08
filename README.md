@@ -36,7 +36,9 @@ once, at the end, and is never trusted without the quote check.
 
 ## How it works
 
-Manuals are read with [design-ingest](https://github.com/owl-solar/design-ingest) (pinned to a git tag), searched offline (BM25 + small local embeddings, plus an exact fault-code lookup), and the best passages go to an LLM (Claude Haiku) that must answer from them only. Every quote is verified word for word in code. Details and the evaluation plan are in [PLAN.md](PLAN.md).
+Manuals are read with [design-ingest](https://github.com/owl-solar/design-ingest) (pinned to a git tag).
+The table above shows each step and whether it uses a model; the plan and evaluation details are in
+[PLAN.md](PLAN.md).
 
 ## Data
 
@@ -139,6 +141,19 @@ A work order is built from a fault-log record without an LLM. Its steps are the 
 ```
 
 A code that is not in the manual of that model gives an order with no steps and a note, not a guess.
+
+## Limitations
+
+- **Small evaluation set.** 25 questions over three manuals, checked by hand. The numbers show the
+  approach works; they are not a guarantee for every manual or every wording of a question.
+- **English only** for now (search, embeddings and the model prompt). Ukrainian is planned.
+- **PDFs with a text layer.** Scanned manuals without text are not read.
+- **Fault-code tables need a known layout.** A new layout has to be added to design-ingest; until then
+  the manual works for free questions, but not for exact code lookup or work orders.
+- **Drafts, not decisions.** Work orders and answers are drafts for a person to review. The manual is
+  the authority; check the cited page before acting on a safety-relevant step.
+- **Synthetic fault logs.** The project was built and tested on generated logs, not on a real plant's
+  data, and has no connection to a maintenance system (CMMS).
 
 ## Licence
 
