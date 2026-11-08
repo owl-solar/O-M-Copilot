@@ -4,6 +4,36 @@ Copilot for solar plant operations: an inverter fault goes in, the matching inst
 
 Status: working CLI, evaluated on 25 questions over three manuals. See [PLAN.md](PLAN.md) for the plan and [CLAUDE.md](CLAUDE.md) for decisions with numbers.
 
+## Why it is useful
+
+- **Every statement has a source.** Answers and work orders cite the manual and the page. The model
+  must quote the manual word for word, and the code checks each quote against the passage it came
+  from: 100% of citations were found in the cited passage in the evaluation.
+- **It says "not found" instead of guessing.** For questions the manuals do not answer it refuses
+  (3 of 3 in the evaluation) and says what is missing.
+- **Fault codes are looked up exactly.** "Fault 39" goes straight to its table entry, not through
+  fuzzy search: the right page is in the top 5 for all 22 answerable questions, and for fault codes
+  it is first in 11 of 12 cases.
+- **Work orders need no AI.** Steps are the manual's own corrective measures with their pages and
+  the priority comes from a plain table: same input, same order, no cost, nothing invented.
+
+## Where AI is used, and where it is not
+
+| Step | Method | Needs a model call? | What it gives |
+|---|---|---|---|
+| Read the PDFs, extract fault-code tables | Deterministic parsing (design-ingest) | No | Same result every run; 213 fault-code records from three manuals |
+| Find a fault code named in the question | Exact lookup by number | No | Numbers are matched exactly, never "close enough" |
+| Find passages by words | BM25 keyword search | No (offline) | Fast, explainable; strong on part names and exact terms |
+| Find passages by meaning | Small local embedding model (bge-small, 64 MB) | No (runs on your machine) | Finds a passage when the question uses different words than the manual |
+| Write the answer | Claude (Haiku), fed only the top passages | **Yes, the only paid step** | Short readable answer with quotes instead of a list of pages |
+| Check the answer | Code compares every quote with its passage | No | Invented or reworded quotes are flagged |
+| Work order | Template over the manual's own steps | No | Free, reproducible, no hallucinated steps |
+
+Why the mix: keyword search alone put the right page in the top 5 for 77% of questions;
+embeddings alone reached 95% but blurred numbers (fault codes first in only 58% of cases);
+embeddings plus the exact code lookup reached 100% (92% first for codes). The model is used
+once, at the end, and is never trusted without the quote check.
+
 ## How it works
 
 Manuals are read with [design-ingest](https://github.com/owl-solar/design-ingest) (pinned to a git tag), searched offline (BM25 + small local embeddings, plus an exact fault-code lookup), and the best passages go to an LLM (Claude Haiku) that must answer from them only. Every quote is verified word for word in code. Details and the evaluation plan are in [PLAN.md](PLAN.md).
