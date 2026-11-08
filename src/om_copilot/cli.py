@@ -5,6 +5,7 @@ import argparse
 import json
 import logging
 import os
+import sys
 from collections import Counter
 from datetime import date
 from pathlib import Path
@@ -199,6 +200,17 @@ def cmd_ui(args: argparse.Namespace) -> int:
                             "--server.headless", "true", "--browser.gatherUsageStats", "false"])
 
 
+def cmd_mcp(args: argparse.Namespace) -> int:
+    """MCP server on stdio for Claude Desktop / Claude Code (needs: pip install -e .[mcp])."""
+    try:
+        from .mcp_server import build_server
+    except ImportError:
+        print("mcp is not installed: pip install -e .[mcp]", file=sys.stderr)
+        return 1
+    build_server().run("stdio")
+    return 0
+
+
 def _retriever(args: argparse.Namespace) -> Retriever:
     return Retriever(load_documents(args.folder), mode=args.mode)
 
@@ -358,6 +370,7 @@ def main(argv: list[str] | None = None) -> int:
     u = sub.add_parser("ui", help="open the demo page in the browser (extra: ui)")
     u.add_argument("--port", type=int, default=8501)
     u.set_defaults(func=cmd_ui)
+    sub.add_parser("mcp", help="MCP server on stdio for an agent (extra: mcp)").set_defaults(func=cmd_mcp)
     x = sub.add_parser("export", help="work orders -> CSV and JSON for a maintenance system (CMMS)")
     x.add_argument("folder", nargs="?", default="data/workorders", help="folder with work order JSON files")
     x.add_argument("--out", default="data/export/workorders", help="path without extension")
