@@ -109,6 +109,29 @@ Limits: English manuals only for now, PDFs with a text layer (no scans).
 
 The questions and expected pages are in `eval/questions.json` (checked by hand against the PDFs). The check that answers contain key words from the manual reads them from a local file, `data/must_contain.json` (`{"q01": ["word", ...]}`, git-ignored because the words come from the manuals); without it that one check is skipped and the others run as usual.
 
+## Compared with "all manuals in the prompt"
+
+The obvious alternative is no retrieval at all: put the full text of every manual into the model's context
+and ask. Same model (Claude Haiku), same 25 questions, same grading; the baseline gets the same page-labelled
+text our pipeline reads (so table extraction is not held against it) and its quotes are checked against the
+page it names. Command: `om-copilot eval-baseline --allow-external`.
+
+| | This pipeline (8 passages) | Whole manuals in the prompt |
+|---|---|---|
+| Answered (22 answerable questions) | 22 | 22 |
+| Every quote found on the page it names | **22 of 22** | 15 of 22 |
+| Expected page cited | **22 of 22** | 14 of 22 (18 if other pages with a verified quote count) |
+| Questions without an answer refused | 3 of 3 | 3 of 3 |
+| Tokens per question | about 3 thousand | about 226 thousand |
+| Cost of the 25 questions | about $0.013 | about $0.45 with prompt caching (about $2.80 without) |
+
+What the baseline got wrong: of its 18 quotes that did not check out, 12 were real text on a neighbouring or
+other page (mostly off by one page), and 6 were not in the cited file as quoted. Both break the "every
+statement has a source you can open" promise, which is the point of this project. What this does **not**
+show: one model (Haiku) and one run each, so a stronger model may cite pages better; answer fluency and
+multi-section questions were not graded, and retrieval of only 8 passages can miss those where a model
+reading everything might not.
+
 ## Examples (real runs, retold in my own words; the tool itself prints the manual's quotes)
 
 **Question with a fault code** (`om-copilot ask "SG350HX shows fault 39. What should I check?"`):

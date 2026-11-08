@@ -14,6 +14,7 @@ from design_ingest.llm import summarize as llm_summary
 
 from .answer import answer, grade
 from .answer import summarize as summarize_grades
+from .baseline import ask_baseline, build_context, cost_usd
 from .corpus import load_documents, summarize
 from .evaluation import evaluate, load_questions
 from .manuals import add_manual, format_report, inspect
@@ -129,6 +130,39 @@ def cmd_eval_answers(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_eval_baseline(args: argparse.Namespace) -> int:
+    """Paid: the same questions, but the model gets all manuals in its context (no retrieval)."""
+    import anthropic
+
+    questions = load_questions(args.questions)
+    if args.ids:
+        questions = [q for q in questions if q["id"] in args.ids.split(",")]
+    questions = questions[: args.limit] if args.limit else questions
+    context, page_text = build_context(load_documents(args.folder))
+    print(f"context: {len(context):,} characters, {len(page_text)} pages; spending cap ${args.max_usd:.2f}")
+    client = anthropic.Anthropic()
+    grades, spent = [], 0.0
+    for i, q in enumerate(questions):
+        a, usage = ask_baseline(q["question"], context, page_text, client=client,
+                                allow_external=args.allow_external or None)
+        spent += cost_usd(usage)
+        g = grade(q, a)
+        grades.append(g)
+        print(f"{q['id']} {'PASS' if g['ok'] else 'FAIL'} cache_read={getattr(usage, 'cache_read_input_tokens', 0)} "
+              f"est. spent ${spent:.3f} {({k: v for k, v in g.items() if k not in ('id', 'ok')})}")
+        if args.show or not g["ok"]:
+            _print_answer(a)
+        if i == 1 and not getattr(usage, "cache_read_input_tokens", 0):
+            print("STOP: the prompt cache is not being hit, every call would pay the full price")
+            break
+        if spent > args.max_usd:
+            print(f"STOP: spending cap ${args.max_usd:.2f} reached")
+            break
+    print(json.dumps(summarize_grades(grades), indent=1))
+    print(f"estimated spend ${spent:.3f} (cache prices applied)")
+    return 0
+
+
 def cmd_manuals(args: argparse.Namespace) -> int:
     """List the manuals in the folder with model label, fault codes and what needs attention."""
     docs = load_documents(args.folder)
@@ -189,6 +223,15 @@ def main(argv: list[str] | None = None) -> int:
     w.add_argument("--out", default="data/workorders")
     w.add_argument("--mode", choices=["bm25", "hybrid"], default="bm25")
     w.set_defaults(func=cmd_workorder)
+    b = sub.add_parser("eval-baseline", help="comparison: all manuals in the model context, no retrieval (paid)")
+    b.add_argument("--questions", default="eval/questions.json")
+    b.add_argument("--ids")
+    b.add_argument("--limit", type=int)
+    b.add_argument("--folder")
+    b.add_argument("--show", action="store_true")
+    b.add_argument("--max-usd", type=float, default=1.0, help="stop when the estimated spend exceeds this")
+    b.add_argument("--allow-external", action="store_true")
+    b.set_defaults(func=cmd_eval_baseline)
     for name, helptext, fn in (("ask", "answer one question with checked citations (paid call)", cmd_ask),
                                ("eval-answers", "answer eval questions and grade them (paid calls)", cmd_eval_answers)):
         p2 = sub.add_parser(name, help=helptext)
