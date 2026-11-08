@@ -6,8 +6,8 @@ import json
 import logging
 import os
 import sys
+import time
 from collections import Counter
-from datetime import date
 from pathlib import Path
 
 from design_ingest.llm import ExternalCallBlocked
@@ -16,9 +16,9 @@ from design_ingest.llm import summarize as llm_summary
 from . import feedback as fb
 from .answer import answer, grade
 from .answer import summarize as summarize_grades
-from .baseline import ask_baseline, build_context, cost_usd
+from .baseline import PRICE_IN, PRICE_OUT, ask_baseline, build_context, cost_usd
 from .corpus import load_documents, summarize
-from .evaluation import evaluate, load_questions
+from .evaluation import evaluate, latency_ms, load_questions
 from .events import group, read_log
 from .export import load_orders
 from .export import write_csv as write_orders_csv
@@ -58,6 +58,11 @@ def cmd_eval(args: argparse.Namespace) -> int:
 
     print(f"mode: {args.mode}, code lookup: {not args.no_code_lookup}")
     print(line("overall", res["overall"]))
+    print(f"latency per query (search only, model already loaded): median {res['latency_ms']['median']} ms, "
+          f"p95 {res['latency_ms']['p95']} ms")
+    if args.save:
+        _save_result(f"retrieval_{args.mode}{'' if not args.no_code_lookup else '_nolookup'}",
+                     {**res["overall"], "latency_ms": res["latency_ms"]})
     for k, m in res["by_type"].items():
         print(line(f"  type: {k}", m))
     for k, m in res["by_file"].items():
@@ -368,17 +373,28 @@ def cmd_eval_answers(args: argparse.Namespace) -> int:
         questions = [q for q in questions if q["id"] in args.ids.split(",")]
     questions = questions[: args.limit] if args.limit else questions
     retriever = _retriever(args)
-    grades = []
+    grades, seconds = [], []
+    before = llm_summary()
     for q in questions:
+        started = time.perf_counter()
         a = answer(q["question"], retriever, allow_external=args.allow_external or None)
+        seconds.append(time.perf_counter() - started)
         g = grade(q, a)
         grades.append(g)
         print(f"{q['id']} {'PASS' if g['ok'] else 'FAIL'} {({k: v for k, v in g.items() if k not in ('id', 'ok')})}")
         if args.show or not g["ok"]:
             _print_answer(a)
-    print(json.dumps(summarize_grades(grades), indent=1))
-    today = llm_summary()["per_day"].get(date.today().isoformat(), {})
-    print(f"llm today (all runs): {today}")
+    stats = summarize_grades(grades)
+    print(json.dumps(stats, indent=1))
+    after = llm_summary()
+    tin, tout = after["input_tokens"] - before["input_tokens"], after["output_tokens"] - before["output_tokens"]
+    lat = latency_ms(seconds)
+    usd = (tin * PRICE_IN + tout * PRICE_OUT) / 1e6  # upper bound: the price above 100K prompt tokens
+    print(f"this run: {len(seconds)} questions, latency median {lat['median']} ms, p95 {lat['p95']} ms (retrieval + model), "
+          f"{tin} input / {tout} output tokens, est. ${usd:.4f} ({usd / max(1, len(seconds)):.4f} per question)")
+    if args.save:
+        _save_result(f"pipeline_{args.save}", {**stats, "latency_ms": lat, "questions": len(seconds), "input_tokens": tin,
+                                               "output_tokens": tout, "usd_upper_bound": round(usd, 4)})
     return 0
 
 
@@ -463,6 +479,7 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("--questions", default="eval/questions.json")
     e.add_argument("--mode", choices=["bm25", "hybrid"], default="bm25", help="retrieval mode (hybrid needs the embeddings extra)")
     e.add_argument("--no-code-lookup", action="store_true", help="disable the exact fault-code lookup")
+    e.add_argument("--save", action="store_true", help="write the numbers to data/compare/ for the comparison table")
     e.set_defaults(func=cmd_eval)
     s = sub.add_parser("synth", help="write a synthetic fault log (jsonl) using codes from the manuals")
     s.add_argument("folder", nargs="?", help="folder with PDFs (default: data/raw)")
@@ -558,6 +575,7 @@ def main(argv: list[str] | None = None) -> int:
             p2.add_argument("--limit", type=int, help="only the first N questions")
             p2.add_argument("--budget", type=int, default=200_000, help="token cap for the day (design-ingest)")
             p2.add_argument("--show", action="store_true", help="print passing answers too")
+            p2.add_argument("--save", help="name of the result file in data/compare/ (pipeline_NAME.json)")
         p2.add_argument("--folder", help="folder with PDFs (default: data/raw)")
         p2.add_argument("--mode", choices=["bm25", "hybrid"], default="hybrid")
         p2.add_argument("--allow-external", action="store_true", help="allow the paid call to the model")

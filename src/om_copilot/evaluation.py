@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from collections import defaultdict
 from collections.abc import Iterable
 from pathlib import Path
@@ -60,13 +61,25 @@ def score(ranks: list[int | None]) -> dict[str, float]:
     return out
 
 
+def latency_ms(seconds: list[float]) -> dict[str, float]:
+    """Median and 95th percentile of per-query times, in milliseconds."""
+    if not seconds:
+        return {"median": 0.0, "p95": 0.0}
+    s = sorted(seconds)
+    return {"median": round(s[len(s) // 2] * 1000, 1), "p95": round(s[min(len(s) - 1, int(len(s) * 0.95))] * 1000, 1)}
+
+
 def evaluate(index, questions: list[dict[str, Any]], top_k: int = 10) -> dict[str, Any]:
     """``index`` is a design_ingest.search.Index. Returns metrics overall, by type and misses."""
     ranks: dict[str, int | None] = {}
+    seconds: list[float] = []
     for q in questions:
         if not q["answerable"]:
             continue
-        ranked = distinct_pages(index.search(q["question"], top_k=top_k))
+        started = time.perf_counter()
+        hits = index.search(q["question"], top_k=top_k)
+        seconds.append(time.perf_counter() - started)
+        ranked = distinct_pages(hits)
         ranks[q["id"]] = rank_of_expected(ranked, q["expected_file"], q["expected_pages"])
     by_type: dict[str, list[int | None]] = defaultdict(list)
     by_file: dict[str, list[int | None]] = defaultdict(list)
@@ -80,4 +93,5 @@ def evaluate(index, questions: list[dict[str, Any]], top_k: int = 10) -> dict[st
         "by_file": {k: score(v) for k, v in by_file.items()},
         "misses": [q["id"] for q in questions if q["id"] in ranks and (ranks[q["id"]] is None or ranks[q["id"]] > 5)],
         "ranks": ranks,
+        "latency_ms": latency_ms(seconds),
     }
