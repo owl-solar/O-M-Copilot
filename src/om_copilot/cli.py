@@ -24,6 +24,7 @@ from .export import load_orders
 from .export import write_csv as write_orders_csv
 from .export import write_json as write_orders_json
 from .manuals import add_manual, format_report, inspect, manifest
+from .orders import approve
 from .retrieval import Retriever
 from .synth import code_pool, generate, write_csv, write_jsonl
 from .workorder import build, to_markdown
@@ -200,6 +201,17 @@ def cmd_ui(args: argparse.Namespace) -> int:
                             "--server.headless", "true", "--browser.gatherUsageStats", "false"])
 
 
+def cmd_approve(args: argparse.Namespace) -> int:
+    """A person approves a saved draft work order (the agent has no such tool)."""
+    try:
+        wo = approve(args.order_id, args.by, Path(args.folder) if args.folder else None)
+    except ValueError as e:
+        print(f"cannot approve: {e}")
+        return 1
+    print(f"{wo.id}: {wo.status} by {wo.approved_by}")
+    return 0
+
+
 def cmd_mcp(args: argparse.Namespace) -> int:
     """MCP server on stdio for Claude Desktop / Claude Code (needs: pip install -e .[mcp])."""
     try:
@@ -374,6 +386,11 @@ def main(argv: list[str] | None = None) -> int:
     u = sub.add_parser("ui", help="open the demo page in the browser (extra: ui)")
     u.add_argument("--port", type=int, default=8501)
     u.set_defaults(func=cmd_ui)
+    ap = sub.add_parser("approve", help="a person approves a saved draft work order")
+    ap.add_argument("order_id")
+    ap.add_argument("--by", required=True, help="name of the person who approves")
+    ap.add_argument("--folder", help="work orders folder (default: data/workorders)")
+    ap.set_defaults(func=cmd_approve)
     sub.add_parser("mcp", help="MCP server on stdio for an agent (extra: mcp)").set_defaults(func=cmd_mcp)
     x = sub.add_parser("export", help="work orders -> CSV and JSON for a maintenance system (CMMS)")
     x.add_argument("folder", nargs="?", default="data/workorders", help="folder with work order JSON files")

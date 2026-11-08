@@ -91,14 +91,14 @@ def test_ask_is_blocked_without_permission(tools, monkeypatch):
     assert r["blocked"] is True and "answer" not in r
 
 
-def test_server_registers_five_read_only_tools(tools):
+def test_server_registers_the_tools(tools):
     pytest.importorskip("mcp")
     from om_copilot.mcp_server import build_server
 
     server = build_server(tools)
     listed = asyncio.run(server.list_tools())
     assert {t.name for t in listed} == {"list_manuals", "lookup_fault_code", "search_manual", "ask_manual", "get_incidents",
-                                        "get_work_order"}
+                                        "get_work_order", "propose_work_order"}
     result = asyncio.run(server.call_tool("lookup_fault_code", {"code": 2001}))
     assert "String Voltage High" in str(result)
 
@@ -147,3 +147,69 @@ def test_server_exposes_manifest_resource_and_list_tool(tools):
     assert [str(r.uri) for r in asyncio.run(server.list_resources())] == ["manuals://manifest"]
     body = asyncio.run(server.read_resource("manuals://manifest"))
     assert SHA in str(body)
+
+
+# ---- M3: writing needs a person ---------------------------------------------------------------------------
+
+def test_propose_creates_a_draft_and_never_approves(tools, tmp_path):
+    oid = tools.get_incidents()["incidents"][0]["id"]
+    r = tools.propose_work_order(oid)
+    assert r["created"] and r["status"] == "draft" and r["approved_by"] is None
+    saved = json.loads((tmp_path / "orders" / f"{oid}.json").read_text(encoding="utf-8"))
+    assert saved["status"] == "draft" and saved["approved_by"] is None and saved["steps"]
+    assert (tmp_path / "orders" / f"{oid}.md").is_file()
+    assert tools.get_work_order(oid)["saved"] is True
+
+
+def test_agent_cannot_set_approved_by_or_change_status(tools, tmp_path):
+    import inspect
+
+    from om_copilot.orders import approve
+
+    oid = tools.get_incidents()["incidents"][0]["id"]
+    assert list(inspect.signature(tools.propose_work_order).parameters) == ["order_id"]
+    assert not [n for n in dir(tools) if "approve" in n.lower()]
+
+    tools.propose_work_order(oid)
+    approve(oid, "A. Person", tmp_path / "orders")  # the human step
+    again = tools.propose_work_order(oid)  # the agent proposes the same order again
+    assert again["created"] is False and again["status"] == "approved" and again["approved_by"] == "A. Person"
+    assert tools.get_work_order(oid)["work_order"]["approved_by"] == "A. Person"
+
+
+def test_approval_rules(tools, tmp_path):
+    from om_copilot.orders import approve
+
+    folder = tmp_path / "orders"
+    oid = tools.get_incidents()["incidents"][0]["id"]
+    with pytest.raises(ValueError, match="draft first"):
+        approve(oid, "A. Person", folder)
+    tools.propose_work_order(oid)
+    with pytest.raises(ValueError, match="name"):
+        approve(oid, "  ", folder)
+    wo = approve(oid, "A. Person", folder)
+    assert (wo.status, wo.approved_by) == ("approved", "A. Person")
+    with pytest.raises(ValueError, match="already approved"):
+        approve(oid, "B. Person", folder)
+    with pytest.raises(ValueError, match="invalid"):
+        approve("../x", "A. Person", folder)
+
+
+def test_server_has_no_approve_tool_and_only_propose_writes(tools):
+    pytest.importorskip("mcp")
+    from om_copilot.mcp_server import build_server
+
+    listed = asyncio.run(build_server(tools).list_tools())
+    assert not [t.name for t in listed if "approve" in t.name or "status" in t.name]
+    writers = [t.name for t in listed if not (t.annotations and t.annotations.read_only_hint)]
+    assert writers == ["propose_work_order"]
+
+
+def test_cli_approve(tools, tmp_path, capsys):
+    from om_copilot import cli
+
+    oid = tools.get_incidents()["incidents"][0]["id"]
+    tools.propose_work_order(oid)
+    assert cli.main(["approve", oid, "--by", "A. Person", "--folder", str(tmp_path / "orders")]) == 0
+    assert "approved by A. Person" in capsys.readouterr().out
+    assert cli.main(["approve", oid, "--by", "B", "--folder", str(tmp_path / "orders")]) == 1

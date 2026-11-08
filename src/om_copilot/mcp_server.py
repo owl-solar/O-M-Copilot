@@ -22,13 +22,15 @@ from .answer import answer
 from .corpus import load_documents
 from .events import filter_incidents, group, read_log
 from .manuals import manifest
+from .orders import load as load_order
+from .orders import orders_dir as orders_dir_default
+from .orders import save_draft
 from .retrieval import Retriever, _ranges
-from .workorder import WorkOrder, build, work_order_id
+from .workorder import build, work_order_id
 
 log = logging.getLogger(__name__)
 
 DEFAULT_LOG = "data/synth/faults.jsonl"
-DEFAULT_ORDERS = "data/workorders"
 MAX_ROWS = 50
 TEXT_CHARS = 700
 SAFE_ID = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -49,7 +51,7 @@ class Tools:
         self._docs = docs
         self._retriever = retriever
         self.log_path = log_path or os.environ.get("OM_COPILOT_LOG", DEFAULT_LOG)
-        self.orders_dir = Path(orders_dir or os.environ.get("OM_COPILOT_WORKORDERS", DEFAULT_ORDERS))
+        self.orders_dir = Path(orders_dir) if orders_dir else orders_dir_default()
         self.mode = mode or os.environ.get("OM_COPILOT_MCP_MODE", "hybrid")
 
     @property
@@ -138,17 +140,11 @@ class Tools:
         return {"summary": stats, "matching": len(chosen), "shown": len(rows),
                 "incidents": rows}
 
-    def _saved_order(self, order_id: str) -> WorkOrder | None:
-        path = self.orders_dir / f"{order_id}.json"
-        if not path.is_file():
-            return None
-        return WorkOrder.model_validate_json(path.read_text(encoding="utf-8"))
-
     def get_work_order(self, order_id: str) -> dict[str, Any]:
         """A saved work order (with its status), else a fresh draft built from the incident with this id."""
         if not SAFE_ID.match(order_id):
             return {"id": order_id, "note": "Invalid id."}
-        saved = self._saved_order(order_id)
+        saved = load_order(order_id, self.orders_dir)
         if saved:
             return {"saved": True, "work_order": saved.model_dump()}
         incidents, _ = self._incidents()
@@ -157,6 +153,21 @@ class Tools:
                 wo = build(self.docs, inc, self.retriever)
                 return {"saved": False, "work_order": wo.model_dump()}
         return {"id": order_id, "note": "No work order or incident with this id."}
+
+
+    def propose_work_order(self, order_id: str) -> dict[str, Any]:
+        """Save the work order of an incident as a DRAFT for a person to review. This is the only write an agent
+        can do. It cannot approve, assign or close an order, and an order that is already saved stays as it is."""
+        if not SAFE_ID.match(order_id):
+            return {"id": order_id, "note": "Invalid id."}
+        incidents, _ = self._incidents()
+        for inc in incidents:
+            if work_order_id(inc["ts"], inc["asset_id"], int(inc["fault_code"])) == order_id:
+                wo, created = save_draft(build(self.docs, inc, self.retriever), self.orders_dir)
+                return {"created": created, "status": wo.status, "approved_by": wo.approved_by,
+                        "next": "A person approves it: om-copilot approve " + order_id + " --by NAME, or the button "
+                                "on the Work order tab of the web page. The agent cannot approve."}
+        return {"id": order_id, "note": "No incident with this id."}
 
 
 def build_server(tools: Tools | None = None) -> Any:
@@ -169,6 +180,9 @@ def build_server(tools: Tools | None = None) -> Any:
     for fn in (tools.list_manuals, tools.lookup_fault_code, tools.search_manual, tools.ask_manual, tools.get_incidents,
                tools.get_work_order):
         server.tool(annotations=read_only)(fn)
+    # the only write: a draft file; idempotent, not destructive; there is no approve tool
+    server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True))(
+        tools.propose_work_order)
     server.resource("manuals://manifest", name="manuals-manifest", mime_type="application/json",
                     description="Manuals behind the answers: model, file, sha256, pages, fault codes, reader version")(
         lambda: json.dumps(manifest(tools.docs), ensure_ascii=False))

@@ -16,6 +16,7 @@ from om_copilot.answer import answer
 from om_copilot.corpus import load_documents, raw_dir
 from om_copilot.events import filter_incidents, group, read_log, summary
 from om_copilot.export import to_csv_text
+from om_copilot.orders import approve, load, save_draft
 from om_copilot.retrieval import Retriever
 from om_copilot.workorder import WorkOrder, build, to_markdown
 
@@ -114,6 +115,25 @@ def tab_incidents(folder: str) -> None:
     st.dataframe([rows[n] for n in order], width="stretch", hide_index=True)
 
 
+def approval(wo: WorkOrder) -> None:
+    """Draft -> approved by a named person. The agent (MCP) can only save drafts; this button is the approval."""
+    saved = load(wo.id)
+    if saved is None:
+        st.caption("Not saved yet.")
+        if st.button("Save as draft"):
+            save_draft(wo)
+            st.rerun()
+        return
+    if saved.status != "draft":
+        st.success(f"Status: {saved.status}, approved by {saved.approved_by}")
+        return
+    st.info("Status: draft. A person has to approve it before work starts.")
+    name = st.text_input("Your name", key=f"by-{wo.id}")
+    if st.button("Approve", disabled=not name.strip(), key=f"approve-{wo.id}"):
+        approve(wo.id, name)
+        st.rerun()
+
+
 def tab_order(folder: str) -> None:
     shown = st.session_state.get("shown")
     if not shown:
@@ -125,6 +145,7 @@ def tab_order(folder: str) -> None:
     a, b = st.columns(2)
     a.download_button("Download this order (markdown)", to_markdown(wo), file_name=f"{wo.id}.md")
     b.download_button("Download this order (JSON)", wo.model_dump_json(indent=2), file_name=f"{wo.id}.json")
+    approval(wo)
     st.divider()
     n = min(len(shown), MAX_BULK)
     if st.button(f"Prepare CSV for a maintenance system ({n} orders)"):
