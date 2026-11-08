@@ -6,7 +6,7 @@ from design_ingest.llm import ExternalCallBlocked
 from om_copilot.answer import answer, grade, summarize
 
 FILE = "Manual.pdf"
-HIT = {"file": FILE, "page": 131, "kind": "fault_code", "text": "Fault code 39: Low insulation. Check the ISO resistance."}
+HIT = {"file": FILE, "page": 131, "kind": "fault_code", "text": "Fault code 39: Low insulation. Check the ground resistance."}
 
 
 class FakeRetriever:
@@ -32,9 +32,9 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.delenv("DESIGN_INGEST_ALLOW_EXTERNAL", raising=False)
 
 
-Q = {"id": "q1", "answerable": True, "expected_file": FILE, "expected_pages": [131], "must_contain": ["ISO resistance"]}
-GOOD = {"answer": "Check the ISO resistance.", "found": True,
-        "citations": [{"n": 1, "quote": "Check the ISO resistance."}]}
+Q = {"id": "q1", "answerable": True, "expected_file": FILE, "expected_pages": [131], "must_contain": ["ground resistance"]}
+GOOD = {"answer": "Check the ground resistance.", "found": True,
+        "citations": [{"n": 1, "quote": "Check the ground resistance."}]}
 
 
 def test_blocked_without_permission():
@@ -72,3 +72,11 @@ def test_summarize_shares():
          {"id": "c", "ok": True, "refused": True}]
     s = summarize(g)
     assert s["all_citations_verified"] == 0.5 and s["cited_expected_page"] == 1.0 and s["refused_unanswerable"] == 1.0
+
+
+def test_without_must_contain_words_that_check_is_skipped_not_passed():
+    q = {k: v for k, v in Q.items() if k != "must_contain"}
+    a = answer("fault 39?", FakeRetriever(), client=FakeClient(GOOD), allow_external=True)
+    g = grade(q, a)
+    assert g["ok"] and g["must_contain"] is None
+    assert summarize([g])["must_contain"] is None

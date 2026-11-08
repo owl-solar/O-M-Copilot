@@ -31,26 +31,28 @@ def grade(q: dict[str, Any], a: Answer) -> dict[str, Any]:
     """Checks without an LLM judge (see PLAN.md, section 4).
 
     answerable: ``found``, every citation verified, an expected (file, page) is cited, all ``must_contain``
-    words appear in the answer or in a verified quote. Unanswerable: the model must say ``found`` = false.
+    words (local file, optional) appear in the answer or in a verified quote. Unanswerable: the model must say ``found`` = false.
     """
     if not q["answerable"]:
         return {"id": q["id"], "ok": not a.found, "refused": not a.found}
     quotes = " ".join(c.quote for c in a.citations if c.verified)
     text = _norm(a.answer + " " + quotes)
     cited = any(c.file == q["expected_file"] and c.page in q["expected_pages"] for c in a.citations)
-    contains = all(_norm(w) in text for w in q["must_contain"])
+    words = q.get("must_contain")
+    contains = all(_norm(w) in text for w in words) if words else None  # None: no words, not graded
     all_verified = bool(a.citations) and all(c.verified for c in a.citations)
-    return {"id": q["id"], "ok": a.found and all_verified and cited and contains, "found": a.found,
+    return {"id": q["id"], "ok": a.found and all_verified and cited and contains is not False, "found": a.found,
             "all_verified": all_verified, "cited_expected": cited, "must_contain": contains}
 
 
-def summarize(grades: list[dict[str, Any]]) -> dict[str, float]:
+def summarize(grades: list[dict[str, Any]]) -> dict[str, float | None]:
     """Shares over answerable questions, plus the refusal share over the unanswerable ones."""
     ans = [g for g in grades if "found" in g]
     unans = [g for g in grades if "refused" in g]
 
-    def share(key: str) -> float:
-        return sum(1 for g in ans if g[key]) / len(ans) if ans else 0.0
+    def share(key: str) -> float | None:
+        graded = [g for g in ans if g[key] is not None]
+        return sum(1 for g in graded if g[key]) / len(graded) if graded else None
 
     return {"n_answerable": len(ans), "n_unanswerable": len(unans),
             "found": share("found"), "all_citations_verified": share("all_verified"),

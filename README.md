@@ -45,7 +45,7 @@ om-copilot eval-answers --allow-external  # 25 paid calls, about 1.5 cents with 
 | | answers with an expected page cited | 22 of 22 |
 | | questions without an answer refused | 3 of 3 |
 
-The question set and expected pages are in `eval/questions.json`; expected pages were checked by hand against the PDFs.
+The questions and expected pages are in `eval/questions.json` (checked by hand against the PDFs). The check that answers contain key words from the manual reads them from a local file, `data/must_contain.json` (`{"q01": ["word", ...]}`, git-ignored because the words come from the manuals); without it that one check is skipped and the others run as usual.
 
 ## Examples (real runs, retold in my own words; the tool itself prints the manual's quotes)
 

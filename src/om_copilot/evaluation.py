@@ -7,6 +7,7 @@ Unanswerable questions are not part of the retrieval metrics.
 from __future__ import annotations
 
 import json
+import os
 from collections import defaultdict
 from collections.abc import Iterable
 from pathlib import Path
@@ -15,8 +16,20 @@ from typing import Any
 KS = (1, 3, 5)
 
 
-def load_questions(path: str | Path) -> list[dict[str, Any]]:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+MUST_CONTAIN_FILE = "data/must_contain.json"  # local, git-ignored: words taken from the manuals
+
+
+def load_questions(path: str | Path, must_contain: str | Path | None = None) -> list[dict[str, Any]]:
+    """Questions from the public file; ``must_contain`` words are merged in from a local file if it exists
+    (``{"q01": ["word", ...]}``, env OM_COPILOT_MUST_CONTAIN). Without it the questions have no such field."""
+    questions = json.loads(Path(path).read_text(encoding="utf-8"))
+    local = Path(must_contain or os.environ.get("OM_COPILOT_MUST_CONTAIN", MUST_CONTAIN_FILE))
+    if local.is_file():
+        words = json.loads(local.read_text(encoding="utf-8"))
+        for q in questions:
+            if q["id"] in words:
+                q["must_contain"] = words[q["id"]]
+    return questions
 
 
 def distinct_pages(hits: Iterable[dict[str, Any]]) -> list[tuple[str, int | None]]:

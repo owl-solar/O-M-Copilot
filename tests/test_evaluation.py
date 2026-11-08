@@ -53,3 +53,17 @@ def test_question_file_is_consistent():
     for q in qs:
         assert q["answerable"] == bool(q["expected_file"]) == bool(q["expected_pages"])
     assert json.dumps(qs)  # serialisable
+
+
+def test_load_questions_merges_local_must_contain_if_present(tmp_path):
+    import json
+
+    from om_copilot.evaluation import load_questions
+
+    public = tmp_path / "q.json"
+    public.write_text(json.dumps([{"id": "a"}, {"id": "b"}]), encoding="utf-8")
+    assert all("must_contain" not in q for q in load_questions(public, tmp_path / "missing.json"))
+    local = tmp_path / "w.json"
+    local.write_text(json.dumps({"a": ["word"]}), encoding="utf-8")
+    qs = load_questions(public, local)
+    assert qs[0]["must_contain"] == ["word"] and "must_contain" not in qs[1]
