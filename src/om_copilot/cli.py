@@ -12,6 +12,7 @@ from pathlib import Path
 from design_ingest.llm import ExternalCallBlocked
 from design_ingest.llm import summarize as llm_summary
 
+from . import feedback as fb
 from .answer import answer, grade
 from .answer import summarize as summarize_grades
 from .baseline import ask_baseline, build_context, cost_usd
@@ -130,6 +131,54 @@ def cmd_export(args: argparse.Namespace) -> int:
     n = write_orders_csv(orders, out.with_suffix(".csv"), delimiter=args.delimiter)
     write_orders_json(orders, out.with_suffix(".json"))
     print(f"{n} work orders -> {out.with_suffix('.csv')} and {out.with_suffix('.json')}")
+    return 0
+
+
+def cmd_feedback(args: argparse.Namespace) -> int:
+    """Record one verdict: a step of a work order helped or did not work."""
+    orders, _ = load_orders(args.folder)
+    wo = next((o for o in orders if o.id == args.wo_id), None)
+    if wo is None:
+        print(f"work order {args.wo_id} not found in {args.folder}")
+        return 1
+    try:
+        rec = fb.record(wo, args.step, "helped" if args.helped else "failed", args.note, args.who)
+    except ValueError as e:
+        print(f"cannot record: {e}")
+        return 1
+    print(f"recorded: {rec['wo_id']} step {rec['step_n']} (p.{rec['page']}) -> {rec['verdict']}")
+    return 0
+
+
+def cmd_feedback_report(args: argparse.Namespace) -> int:
+    """Helped rate overall and per fault code, from the feedback log."""
+    path = Path(args.file) if args.file else None
+    s = fb.summarize(fb.read(path))
+    if not s["verdicts"]:
+        print(f"no feedback yet in {path or fb.log_path()}. Record some: om-copilot feedback WO_ID --step 1 --helped")
+        return 1
+    print(f"{s['verdicts']} verdicts: {s['helped']} helped, {s['failed']} did not work, "
+          f"helped rate {s['rate']:.0%}")
+    for r in s["codes"][: args.top]:
+        flag = "  <- review the steps" if r["review"] else ""
+        print(f"  {r['model']} code {r['fault_code']}: {r['helped']}/{r['n']} helped ({r['rate']:.0%}){flag}")
+    print(f"{len(s['to_review'])} codes to review (at least {fb.REVIEW_MIN_VERDICTS} verdicts, "
+          f"helped rate below {fb.REVIEW_BELOW_RATE:.0%})")
+    return 0
+
+
+def cmd_synth_feedback(args: argparse.Namespace) -> int:
+    """DEMO ONLY: invented verdicts for existing work orders, written to a separate file."""
+    orders, _ = load_orders(args.folder)
+    if not orders:
+        print(f"no work orders in {args.folder}")
+        return 1
+    recs = fb.synthetic(orders, seed=args.seed)
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    lines = [json.dumps(r, ensure_ascii=False) for r in recs]
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    print(f"{len(recs)} SYNTHETIC verdicts -> {out} (demo only; report with: feedback-report --file {out})")
     return 0
 
 
@@ -270,6 +319,25 @@ def main(argv: list[str] | None = None) -> int:
     w.add_argument("--out", default="data/workorders")
     w.add_argument("--mode", choices=["bm25", "hybrid"], default="bm25")
     w.set_defaults(func=cmd_workorder)
+    f = sub.add_parser("feedback", help="record that a step of a work order helped or did not work")
+    f.add_argument("wo_id", help="work order id (file name without extension)")
+    f.add_argument("--step", type=int, required=True)
+    verdict = f.add_mutually_exclusive_group(required=True)
+    verdict.add_argument("--helped", action="store_true")
+    verdict.add_argument("--failed", action="store_true")
+    f.add_argument("--note")
+    f.add_argument("--who", help="technician name or id")
+    f.add_argument("--folder", default="data/workorders")
+    f.set_defaults(func=cmd_feedback)
+    r = sub.add_parser("feedback-report", help="helped rate overall and per fault code")
+    r.add_argument("--file", help="feedback log (default: data/feedback.jsonl)")
+    r.add_argument("--top", type=int, default=10, help="how many codes to list, worst first")
+    r.set_defaults(func=cmd_feedback_report)
+    sf = sub.add_parser("synth-feedback", help="DEMO ONLY: invented verdicts for existing work orders")
+    sf.add_argument("--folder", default="data/workorders")
+    sf.add_argument("--out", default="data/synth/feedback.jsonl")
+    sf.add_argument("--seed", type=int, default=42)
+    sf.set_defaults(func=cmd_synth_feedback)
     x = sub.add_parser("export", help="work orders -> CSV and JSON for a maintenance system (CMMS)")
     x.add_argument("folder", nargs="?", default="data/workorders", help="folder with work order JSON files")
     x.add_argument("--out", default="data/export/workorders", help="path without extension")
