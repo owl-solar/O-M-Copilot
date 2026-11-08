@@ -6,8 +6,10 @@ Status, assignee, approval and work done are empty or "draft": people fill them 
 from __future__ import annotations
 
 import csv
+import io
 import json
 from pathlib import Path
+from typing import TextIO
 
 from .workorder import Item, WorkOrder
 
@@ -55,14 +57,24 @@ def to_row(wo: WorkOrder) -> dict[str, object]:
     }
 
 
+def _write_rows(f: TextIO, orders: list[WorkOrder], delimiter: str) -> None:
+    out = csv.DictWriter(f, fieldnames=COLUMNS, delimiter=delimiter)
+    out.writeheader()
+    for wo in orders:
+        out.writerow(to_row(wo))
+
+
+def to_csv_text(orders: list[WorkOrder], delimiter: str = ",") -> str:
+    buf = io.StringIO(newline="")
+    _write_rows(buf, orders, delimiter)
+    return buf.getvalue()
+
+
 def write_csv(orders: list[WorkOrder], path: str | Path, delimiter: str = ",") -> int:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8-sig", newline="") as f:  # BOM: Excel reads UTF-8 correctly
-        out = csv.DictWriter(f, fieldnames=COLUMNS, delimiter=delimiter)
-        out.writeheader()
-        for wo in orders:
-            out.writerow(to_row(wo))
+        _write_rows(f, orders, delimiter)
     return len(orders)
 
 

@@ -86,3 +86,12 @@ def test_export_row_has_audit_fields_and_people_fields_stay_empty(tmp_path):
     assert row["manual_sha256"] == "abc123" and row["manual_pages"] == "12,15" and row["priority"] == "P2"
     assert "1. Check the string layout. [p.12-15]" in row["steps"]
     assert row["assignee"] == row["approved_by"] == row["work_done"] == "" and row["repeat"] == "no"
+
+
+def test_csv_text_equals_the_file_version(tmp_path):
+    from om_copilot.export import to_csv_text, write_csv
+
+    wo = build([DOC], EVENT)
+    write_csv([wo], tmp_path / "o.csv")
+    with (tmp_path / "o.csv").open(encoding="utf-8-sig", newline="") as f:
+        assert f.read() == to_csv_text([wo])

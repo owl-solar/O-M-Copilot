@@ -67,6 +67,7 @@ om-copilot synth -n 1000 --seed 42        # synthetic fault log in data/synth/ (
 om-copilot synth --csv data/synth/faults.csv   # the same log as a SCADA-style CSV (; separated, day.month.year)
 om-copilot incidents data/synth/faults.csv     # 1000 events -> incidents: alarm storms merged, repeats marked
 om-copilot workorder -n 5                 # draft work orders (JSON + markdown), no LLM, free
+om-copilot ui                             # demo page in the browser (pip install -e .[ui] first)
 om-copilot export                         # all work orders -> one CSV and one JSON for a maintenance system
 om-copilot feedback ID --step 2 --failed  # a technician marks a step: --helped or --failed
 om-copilot feedback-report                # helped rate overall and per fault code, worst first
@@ -169,6 +170,17 @@ A SCADA export is a stream of alarms, not a list of jobs. `om-copilot incidents`
 **Feedback from the field.** The only quality numbers so far come from our own 25 questions. `om-copilot feedback ID --step N --helped` (or `--failed`) records a technician's verdict on one step of one work order; `feedback-report` turns the log into a helped rate overall and per fault code, worst first, and flags codes with at least 3 verdicts and a rate below 50% for a review of the manual page. If someone changes their mind, the last verdict for a step counts. The log is `data/feedback.jsonl` (git-ignored: it is field data). The rate measures how useful the steps were, not whether the manual is right, and says little until a code has several verdicts, so the report always shows the count. `synth-feedback` writes invented verdicts into a separate file, marked synthetic, only so that the report can be demonstrated; those numbers say nothing about any manual.
 
 On the synthetic log (seed 42, 1000 events) this gives 818 incidents, 166 of them repeats. The log is generated, so the ratio shows the mechanism and says nothing about a real plant.
+
+## Demo page
+
+`pip install -e .[ui]`, then `om-copilot ui` and open the printed address. Four tabs over the same functions as the command line:
+
+1. **Incidents**: upload a CSV or JSONL (or use the synthetic demo log), see events, incidents, repeats and alarms merged away, filter by model and site.
+2. **Work order**: pick an incident; priority with its reasons, respond-by time, safety excerpts and steps, each with file and page. Under every step: "Helped" / "Did not work". Download one order (markdown, JSON) or a CSV for a maintenance system.
+3. **Ask the manuals**: free question, answer with quotes checked against the page. The only paid action, and only after a tick in the box and a click.
+4. **Feedback**: helped rate overall and per fault code, codes to review.
+
+It runs locally and the manuals never leave the machine; only the question box sends text (the retrieved passages and the question) to the model.
 
 ## Draft work order (format)
 

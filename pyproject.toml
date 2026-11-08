@@ -17,6 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.5"]
+ui = ["streamlit>=1.40"]
 
 [project.scripts]
 om-copilot = "om_copilot.cli:main"

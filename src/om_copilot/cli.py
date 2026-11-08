@@ -182,6 +182,23 @@ def cmd_synth_feedback(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ui(args: argparse.Namespace) -> int:
+    """Open the demo page in the browser (needs: pip install -e .[ui])."""
+    import subprocess
+    import sys
+
+    try:
+        import streamlit  # noqa: F401
+    except ImportError:
+        print("streamlit is not installed: pip install -e .[ui]")
+        return 1
+    page = Path(__file__).with_name("ui.py")
+    print(f"open http://localhost:{args.port} in the browser (Ctrl+C to stop)")
+    # headless: no e-mail prompt on the first start, no usage statistics
+    return subprocess.call([sys.executable, "-m", "streamlit", "run", str(page), "--server.port", str(args.port),
+                            "--server.headless", "true", "--browser.gatherUsageStats", "false"])
+
+
 def _retriever(args: argparse.Namespace) -> Retriever:
     return Retriever(load_documents(args.folder), mode=args.mode)
 
@@ -338,6 +355,9 @@ def main(argv: list[str] | None = None) -> int:
     sf.add_argument("--out", default="data/synth/feedback.jsonl")
     sf.add_argument("--seed", type=int, default=42)
     sf.set_defaults(func=cmd_synth_feedback)
+    u = sub.add_parser("ui", help="open the demo page in the browser (extra: ui)")
+    u.add_argument("--port", type=int, default=8501)
+    u.set_defaults(func=cmd_ui)
     x = sub.add_parser("export", help="work orders -> CSV and JSON for a maintenance system (CMMS)")
     x.add_argument("folder", nargs="?", default="data/workorders", help="folder with work order JSON files")
     x.add_argument("--out", default="data/export/workorders", help="path without extension")

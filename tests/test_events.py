@@ -76,3 +76,13 @@ def test_repeat_raises_priority_one_level_and_shows_in_markdown():
                    last_ts="t2", repeated=True, prior_incidents=2)
     md = to_markdown(wo)
     assert "Alarms merged: 4" in md and "REPEAT" in md
+
+
+def test_summary_and_filters():
+    from om_copilot.events import filter_incidents, summary
+
+    events = [ev("2026-03-01T10:00:00"), ev("2026-03-01T10:05:00"), ev("2026-03-02T10:00:00", asset="INV-02", model="N")]
+    inc = group(events)
+    assert summary(events, inc) == {"events": 3, "incidents": 2, "repeats": 0, "merged_away": 1}
+    assert [i["asset_id"] for i in filter_incidents(inc, models=["N"])] == ["INV-02"]
+    assert filter_incidents(inc, repeated_only=True) == [] and len(filter_incidents(inc, sites=["S"])) == 2

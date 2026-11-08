@@ -147,5 +147,20 @@ def group(events: list[dict[str, Any]], window_hours: float | None = None, repea
     return sorted(incidents, key=lambda i: (i["ts"], i["asset_id"]))
 
 
+def summary(events: list[dict[str, Any]], incidents: list[dict[str, Any]]) -> dict[str, int]:
+    """The numbers a person wants first: events in, incidents out, repeats, alarms saved."""
+    return {"events": len(events), "incidents": len(incidents),
+            "repeats": sum(1 for i in incidents if i["repeated"]),
+            "merged_away": len(events) - len(incidents)}
+
+
+def filter_incidents(incidents: list[dict[str, Any]], *, repeated_only: bool = False,
+                     models: list[str] | None = None, sites: list[str] | None = None) -> list[dict[str, Any]]:
+    return [i for i in incidents
+            if (not repeated_only or i["repeated"])
+            and (not models or i["model"] in models)
+            and (not sites or i["site"] in sites)]
+
+
 def _incident(items: list[dict[str, Any]]) -> dict[str, Any]:
     return {**items[0], "occurrences": len(items), "last_ts": items[-1]["ts"]}
