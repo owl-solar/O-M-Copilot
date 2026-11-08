@@ -38,6 +38,10 @@ The demo page (`om-copilot ui`) runs locally on a synthetic fault log. Screensho
 
 ![A work order that is not saved yet](docs/img/ui-not-saved.png)
 
+**Feedback from technicians.** Each step of a work order has "Helped" and "Did not work". The report shows the helped rate overall and per fault code and flags codes with at least 3 verdicts and a rate below 50% for a review of the manual page. The verdicts in this picture are **invented** (the yellow banner says so); they only show how the report looks.
+
+![Feedback report on synthetic verdicts: 48 verdicts, 56% helped, one code to review](docs/img/ui-feedback.png)
+
 ## How it is built
 
 ```mermaid
