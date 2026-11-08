@@ -68,6 +68,9 @@ om-copilot synth --csv data/synth/faults.csv   # the same log as a SCADA-style C
 om-copilot incidents data/synth/faults.csv     # 1000 events -> incidents: alarm storms merged, repeats marked
 om-copilot workorder -n 5                 # draft work orders (JSON + markdown), no LLM, free
 om-copilot ui                             # demo page in the browser (pip install -e .[ui] first)
+om-copilot mcp                            # MCP server for Claude Desktop / Claude Code (pip install -e .[mcp])
+om-copilot approve ID --by NAME           # a person approves a saved draft work order
+om-copilot eval-agent                     # scripted agent on the synthetic log, checks (free)
 om-copilot export                         # all work orders -> one CSV and one JSON for a maintenance system
 om-copilot feedback ID --step 2 --failed  # a technician marks a step: --helped or --failed
 om-copilot feedback-report                # helped rate overall and per fault code, worst first
@@ -197,6 +200,95 @@ A work order is built from a fault-log record without an LLM. Its steps are the 
 ```
 
 A code that is not in the manual of that model gives an order with no steps and a note, not a guess.
+
+## Agent access (MCP)
+
+The same functions are also available to an AI agent (Claude Desktop, Claude Code) through an MCP server over stdio. It is a thin layer in `mcp_server.py`: no logic of its own, and nothing in it reads a document except through design-ingest.
+
+```bash
+pip install -e ".[mcp]"        # official Python SDK, optional extra
+om-copilot mcp                 # the server (stdio); a client starts it for you
+```
+
+| Tool / resource | What it does | Costs |
+|---|---|---|
+| `list_manuals`, resource `manuals://manifest` | Model, file, sha256, pages, fault codes found, design-ingest version (same numbers as `om-copilot manuals --json`) | free |
+| `lookup_fault_code` | Exact code in the manuals, optional model; name, severity, steps, file, page, sha256 | free |
+| `search_manual` | Hybrid search plus exact code lookup; shortened passages with file, page, sha256 | free |
+| `ask_manual` | Answer with quotes checked in code | one paid call, only if the operator allowed external calls; the agent cannot allow it |
+| `get_incidents` | Incidents from the fault log: storms merged, repeats, priority, respond-by time | free |
+| `get_work_order` | A saved order with its status, or a fresh draft for an incident id | free |
+| `propose_work_order` | Saves a **draft**. The only write. | free |
+
+There is no approve tool. An order becomes `approved` only when a person runs `om-copilot approve ID --by NAME` or presses **Approve** on the Work order tab of the demo page. MCP elicitation was not used for this on purpose: the SDK allows an agent client to answer an elicitation by itself, so it would not prove that a person was there. A draft that is already saved is never overwritten, so the agent cannot move an approved order back.
+
+**Who does what**
+
+| Step | Computed by code | Decided by the LLM | Confirmed by a person |
+|---|---|---|---|
+| Read the PDFs, find fault-code tables (`corpus.py`, design-ingest) | yes | | |
+| Which manual a code belongs to, exact code lookup (`retrieval.py`, `mcp_server.py`) | yes | | |
+| Merge alarm storms, mark repeats (`events.py`) | yes | | |
+| Priority, respond-by time (`workorder.py`, `config.py`) | yes | | |
+| Steps and safety passages of a work order (`workorder.py`) | yes, the manual's own words | | |
+| Which tool to call, what to tell the user | | yes | |
+| Free-text answer (`answer.py`) | quote check in code | writes it | reads it |
+| Saving a draft (`orders.py`, `propose_work_order`) | yes | the agent asks for it | |
+| Approving an order (`orders.py`, `om-copilot approve`, Approve button) | records it | cannot | **yes** |
+| Doing the work, closing the order | | | **yes** |
+
+**Connect Claude Code** (use absolute paths; the server reads relative paths from its working directory otherwise):
+
+```bash
+claude mcp add \
+  --env OM_COPILOT_RAW_DIR=<project>/data/raw \
+  --env OM_COPILOT_LOG=<project>/data/synth/faults.jsonl \
+  --env OM_COPILOT_WORKORDERS=<project>/data/workorders \
+  om-copilot -- <project>/.venv/Scripts/om-copilot.exe mcp
+```
+
+**Connect Claude Desktop** (`claude_desktop_config.json`, then restart the app):
+
+```json
+{
+  "mcpServers": {
+    "om-copilot": {
+      "command": "<project>\\.venv\\Scripts\\om-copilot.exe",
+      "args": ["mcp"],
+      "env": {
+        "OM_COPILOT_RAW_DIR": "<project>\\data\\raw",
+        "OM_COPILOT_LOG": "<project>\\data\\synth\\faults.jsonl",
+        "OM_COPILOT_WORKORDERS": "<project>\\data\\workorders",
+        "OM_COPILOT_LOCAL_CONFIG": "<project>\\data\\config.local.json"
+      }
+    }
+  }
+}
+```
+
+Replace `<project>` with the folder of your checkout. `OM_COPILOT_MCP_MODE=bm25` starts faster (no embedding model); the default is `hybrid`. The first start reads the PDFs, which takes a moment.
+
+**Demo script** (synthetic log, seed 42; the answers give file and page, not quotes):
+
+1. "Which manuals are loaded?" -> `list_manuals`: three manuals, 212 fault-code records, a sha256 for each.
+2. "What does fault 39 on the SG350HX-20 say?" -> `lookup_fault_code`: one record, the Sungrow user manual p.131, six listed measures.
+3. "Which inverters keep coming back?" -> `get_incidents` with repeats only: 166 of 818 incidents; the three chronic ones the generator planted are INV-18 (code 2077, Huawei reference p.68), INV-31 (code 204, SMA manual p.69) and INV-20 (code 2001).
+4. "Draft an order for the first one." -> `propose_work_order`: status `draft`, nobody approved.
+5. "Approve it." -> the agent has no tool for that and says so; you run `om-copilot approve ID --by NAME` and the status changes.
+
+**Agent eval without a model** (`om-copilot eval-agent`, free). The generator knows what it planted, so a fixed script that uses the tools can be scored. This is not an LLM: it shows that the tools make the right answers reachable and that the checks can fail (tests break each check on purpose).
+
+| Check | Seed 42, 1000 events |
+|---|---|
+| Alarm storms merged into one incident | 25 / 25 |
+| Chronic repeats flagged | 3 / 3 |
+| Priority and deadline follow the rules (severity, rated power, repeat, SLA) | 457 / 457 |
+| Drafts written / written without a person's confirmation | 3 / 0 |
+| Numbers in the report that are in no tool output | 0 |
+
+The priority check applies the same rules from `config.py`, so it catches wiring mistakes, not a wrong rule. A run with a real model in the loop is not done yet.
+
+**Roadmap:** pvlib expected-yield check, string currents, warranty claims, monthly reports, link to Owl Reset.
 
 ## Limitations
 
