@@ -20,6 +20,16 @@ _CODE_CUE = re.compile(
 )
 
 
+# Codes with letters (F0234, E-306): a token counts as a code when it is exactly a code of some manual's table,
+# so "SG350HX" is never taken for one. Numeric codes need a cue word, see above.
+_LABEL = re.compile(r"^[A-Za-z]{1,3}[-_]?\d{1,6}$")
+_LABEL_TOKEN = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]{1,3}[-_]?\d{1,6}(?![A-Za-z0-9])")
+
+
+def _norm_label(s: str) -> str:
+    return re.sub(r"[-_\s]", "", s).upper()
+
+
 @dataclass(frozen=True)
 class CodeEntry:
     file: str
@@ -27,6 +37,7 @@ class CodeEntry:
     hi: int
     page: int | None
     text: str
+    label: str | None = None  # normalised letter code, e.g. "F0234"; lo = hi = -1 then
 
 
 def _ranges(record: dict[str, Any]) -> list[tuple[int, int]]:
@@ -36,6 +47,20 @@ def _ranges(record: dict[str, Any]) -> list[tuple[int, int]]:
         return [(int(a), int(b)) for a, b in ranges]
     code = str(record.get("code", "")).strip()
     return [(int(code), int(code))] if code.isdigit() else []
+
+
+def _labels(record: dict[str, Any]) -> list[str]:
+    """The record's code if it has letters (F0234); [] for numeric codes, ranges and footnotes."""
+    code = str(record.get("code", "")).strip()
+    return [_norm_label(code)] if _LABEL.match(code) else []
+
+
+def record_matches(record: dict[str, Any], code: int | str) -> bool:
+    """Does the fault_codes record cover ``code`` (a number, a numeric string or a letter code)?"""
+    text = str(code).strip()
+    if text.isdigit():
+        return any(lo <= int(text) <= hi for lo, hi in _ranges(record))
+    return _norm_label(text) in _labels(record)
 
 
 def _record_text(record: dict[str, Any]) -> str:
@@ -53,6 +78,8 @@ def build_code_table(docs: Iterable[Document]) -> list[CodeEntry]:
             text = _record_text(rec)
             for lo, hi in _ranges(rec):
                 table.append(CodeEntry(doc.filename, lo, hi, rec.get("page"), text))
+            for label in _labels(rec):
+                table.append(CodeEntry(doc.filename, -1, -1, rec.get("page"), text, label))
     return table
 
 
@@ -64,7 +91,11 @@ def find_codes(question: str, table: list[CodeEntry]) -> list[CodeEntry]:
     found: list[CodeEntry] = []
     for n in codes_in_question(question):
         for e in table:
-            if e.lo <= n <= e.hi and e not in found:
+            if e.label is None and e.lo <= n <= e.hi and e not in found:
+                found.append(e)
+    for token in _LABEL_TOKEN.findall(question):
+        for e in table:
+            if e.label == _norm_label(token) and e not in found:
                 found.append(e)
     return found
 
@@ -81,6 +112,7 @@ class Retriever:
             {"file": e.file, "page": e.page, "kind": "fault_code", "text": e.text, "score": float("inf"),
              "source": "code_lookup"}
             for e in find_codes(query, self.table)
+            if not filters.get("files") or e.file in filters["files"]
         ]
         rest = self.index.search(query, top_k=top_k + len(exact), **filters)
         seen = {(h["file"], h["page"], h["text"]) for h in exact}

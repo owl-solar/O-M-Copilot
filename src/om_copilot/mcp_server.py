@@ -25,7 +25,7 @@ from .manuals import manifest
 from .orders import load as load_order
 from .orders import orders_dir as orders_dir_default
 from .orders import save_draft
-from .retrieval import Retriever, _ranges
+from .retrieval import Retriever, record_matches
 from .workorder import build, work_order_id
 
 log = logging.getLogger(__name__)
@@ -79,15 +79,16 @@ class Tools:
 
     # ---- tools ----------------------------------------------------------------------------------------
 
-    def lookup_fault_code(self, code: int, model: str | None = None) -> dict[str, Any]:
-        """Exact fault-code lookup in the manuals (optionally only the manual of one model label)."""
+    def lookup_fault_code(self, code: int | str, model: str | None = None) -> dict[str, Any]:
+        """Exact fault-code lookup in the manuals (a number like 39 or a letter code like F0234), optionally only
+        the manual of one model label."""
         matches = []
         for doc in self.docs:
             label = config.model_of(doc.filename)
             if model and label.lower() != model.lower():
                 continue
             for rec in doc.data.get("fault_codes") or []:
-                if any(lo <= code <= hi for lo, hi in _ranges(rec)):
+                if record_matches(rec, code):
                     matches.append({"model": label, "code": rec.get("code"), "name": rec.get("name"),
                                     "severity": rec.get("severity"), "causes": rec.get("causes"),
                                     "measures": rec.get("measures") or [],
@@ -97,9 +98,17 @@ class Tools:
             note = "The same number exists in several manuals: pick by model."
         return {"code": code, "matches": matches, "note": note}
 
-    def search_manual(self, query: str, top_k: int = 5) -> dict[str, Any]:
-        """Search the manuals (hybrid search plus exact fault-code lookup). Passages are shortened."""
-        hits = self.retriever.search(query, top_k=max(1, min(top_k, 10)))
+    def search_manual(self, query: str, top_k: int = 5, model: str | None = None) -> dict[str, Any]:
+        """Search the manuals (hybrid search plus exact fault-code lookup), optionally only the manual of one
+        model label (see list_manuals). Passages are shortened."""
+        filters: dict[str, Any] = {}
+        if model:
+            files = [d.filename for d in self.docs if config.model_of(d.filename).lower() == model.lower()]
+            if not files:
+                known = sorted({config.model_of(d.filename) for d in self.docs})
+                return {"query": query, "hits": [], "note": f"No manual for model {model}. Known models: {known}"}
+            filters["files"] = files
+        hits = self.retriever.search(query, top_k=max(1, min(top_k, 10)), **filters)
         return {"query": query, "hits": [
             {"file": h["file"], "page": h.get("page"), "kind": h.get("kind"), "text": h["text"][:TEXT_CHARS],
              "sha256": self._sha_of(h["file"])} for h in hits]}

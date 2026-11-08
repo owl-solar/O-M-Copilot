@@ -213,3 +213,27 @@ def test_cli_approve(tools, tmp_path, capsys):
     assert cli.main(["approve", oid, "--by", "A. Person", "--folder", str(tmp_path / "orders")]) == 0
     assert "approved by A. Person" in capsys.readouterr().out
     assert cli.main(["approve", oid, "--by", "B", "--folder", str(tmp_path / "orders")]) == 1
+
+
+def test_search_can_be_limited_to_one_model(tools):
+    seen = {}
+
+    class Spy(FakeRetriever):
+        def search(self, query, top_k=8, **filters):
+            seen.update(filters)
+            return super().search(query, top_k, **filters)
+
+    tools._retriever = Spy()
+    tools.search_manual("string voltage", model="SUN2000")
+    assert seen == {"files": [DOC.filename]}
+    r = tools.search_manual("string voltage", model="Nope")
+    assert r["hits"] == [] and "SUN2000" in r["note"]
+
+
+def test_lookup_accepts_letter_codes(tools):
+    DOC.data["fault_codes"].append({"code": "F0234", "name": "Grid fault", "page": 30, "measures": ["1. Look."]})
+    try:
+        m = tools.lookup_fault_code("f0234")["matches"]
+        assert [x["source"]["page"] for x in m] == [30]
+    finally:
+        DOC.data["fault_codes"].pop()

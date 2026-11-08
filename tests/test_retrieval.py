@@ -60,3 +60,39 @@ def test_retriever_puts_exact_code_first_and_keeps_the_rest(monkeypatch):
     assert hits[0]["source"] == "code_lookup" and hits[0]["page"] == 127
     assert [h["page"] for h in hits] == [127, 1]  # duplicate of the exact record is not repeated
     assert [h["page"] for h in r.search("no code here", top_k=3)] == [1, 127]
+
+
+LETTERS = doc("ab.pdf", [
+    {"code": "F0234", "code_ranges": None, "name": "Grid fault", "measures": ["Check grid."], "page": 30},
+    {"code": "E-306", "code_ranges": None, "name": "Fan fault", "measures": ["Check fan."], "page": 31},
+])
+
+
+def test_letter_codes_match_exactly_and_without_a_cue_word():
+    t = build_code_table([SUNGROW, LETTERS])
+    pages = lambda q: [(e.file, e.page) for e in find_codes(q, t)]
+    assert pages("what does F0234 mean?") == [("ab.pdf", 30)]
+    assert pages("inverter shows f0234") == [("ab.pdf", 30)]
+    assert pages("alarm E306 on site") == [("ab.pdf", 31)]
+    assert pages("SG350HX fault 39 at 25 minutes") == []  # model names and bare numbers are not codes
+    assert pages("what is F0999?") == []
+
+
+def test_record_matches_numbers_ranges_and_letters():
+    from om_copilot.retrieval import record_matches
+
+    rng = {"code": "448-479", "code_ranges": [[448, 479]]}
+    assert record_matches(rng, 450) and record_matches(rng, "450") and not record_matches(rng, 500)
+    assert record_matches({"code": "F0234"}, "f-0234") and not record_matches({"code": "F0234"}, "F0235")
+    assert not record_matches({"code": "*Depending"}, "Depending")
+
+
+def test_code_lookup_respects_the_file_filter():
+    class Index:
+        def search(self, query, top_k=8, **filters):
+            return []
+
+    r = Retriever.__new__(Retriever)
+    r.index, r.table = Index(), build_code_table([SUNGROW, LETTERS])
+    assert [h["file"] for h in r.search("fault code 450", files=["sg.pdf"])] == ["sg.pdf"]
+    assert r.search("fault code 450", files=["ab.pdf"]) == []
