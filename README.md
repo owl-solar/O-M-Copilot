@@ -1,8 +1,80 @@
 # O&M Copilot
 
-Copilot for solar plant operations: an inverter fault goes in, the matching instruction from the manufacturer's manual and a draft work order come out. Every statement carries a citation (file and page); if the manuals do not answer, it says so.
+**An inverter fault goes in. The matching instruction from the manufacturer's manual and a draft work order come out, and every statement carries the file and page it came from.** If the manuals do not answer, the tool says so instead of guessing.
 
-Status: working CLI, evaluated on 25 questions over three manuals. See [PLAN.md](PLAN.md) for the plan and [CLAUDE.md](CLAUDE.md) for decisions with numbers.
+![A draft work order: priority with its reasons, respond-by time, steps with file and page, a Helped / Did not work button under each step](docs/img/ui-work-order.png)
+
+Status: working CLI, demo page (Streamlit) and MCP server; evaluated on 25 questions over three manuals from three manufacturers. See [PLAN.md](PLAN.md) for the plan and [CLAUDE.md](CLAUDE.md) for decisions with numbers.
+
+## What it does
+
+A plant's SCADA system produces alarms, not jobs. A technician needs to know: is this one problem or fifty alarms from one storm, how urgent is it, what does the manufacturer say to check, and who signed it off. The Copilot answers these in five steps:
+
+1. **Reads the manuals** (PDF) and extracts the fault-code tables: code, name, corrective measures, page.
+2. **Reads a fault log** (CSV or JSONL, column names matched by alias) and turns the alarm stream into incidents: the same code on the same inverter within 6 hours is one incident; the third in 30 days is a repeat.
+3. **Builds a draft work order** for each incident: the manual's own corrective measures and safety passages, each with file and page, plus a priority that explains itself and a respond-by time.
+4. **Answers free questions** ("What do I check on fault 39?") with quotes that the code verifies against the passage they came from.
+5. **Hands over to people.** The tool only writes drafts. Approval, assignment and "work done" are filled in by a named person; an AI agent has no tool to do it.
+
+You can use it from the command line, from a browser page, or from an AI agent (Claude Desktop, Claude Code) through MCP.
+
+## How it looks
+
+The demo page (`om-copilot ui`) runs locally on a synthetic fault log. Screenshots show a few lines of one manufacturer's fault table exactly as the tool prints them; the manual itself is copyrighted by its owner and is not in this repository.
+
+**An incident with a repeat.** Priority P1 and the reason: the manual rates the fault Major (P2) and the repeat on this inverter raises it one level. "Respond by" is the reported time plus the SLA of the final priority (P1: 4 hours). Every step names its file and page.
+
+(The picture at the top of this page.)
+
+**Approval is a person's action.** A saved draft shows its status. The Approve button stays grey until a name is typed; the tool records who approved, and an approved order is never overwritten.
+
+![Draft status, name field and a disabled Approve button](docs/img/ui-approval.png)
+
+**An incident that has not been saved yet.** Only P2 here (no repeat, one reason), and the only action is "Save as draft".
+
+![A work order that is not saved yet](docs/img/ui-not-saved.png)
+
+## How it is built
+
+```mermaid
+flowchart LR
+    PDF[Manual PDFs<br/>local, not in git] --> DI[design-ingest<br/>pages, tables,<br/>fault-code records]
+    LOG[Fault log<br/>CSV / JSONL] --> EV[events.py<br/>incidents, repeats]
+    DI --> RET[retrieval.py<br/>exact code lookup<br/>+ BM25 + embeddings]
+    EV --> WO[workorder.py<br/>steps, safety,<br/>priority, SLA]
+    DI --> WO
+    RET --> ANS[answer.py<br/>Claude Haiku<br/>+ quote check]
+    WO --> ORD[orders.py<br/>drafts on disk]
+    ORD -->|a person approves| APP[approved]
+    CLI[CLI] --- CORE((same functions))
+    UI[Streamlit page] --- CORE
+    MCP[MCP server<br/>for AI agents] --- CORE
+```
+
+The CLI, the web page and the MCP server are thin layers over the same functions, so a number shown in one place is the same number everywhere.
+
+## Technologies and algorithms
+
+| Part | What is used | Detail |
+|---|---|---|
+| Language, data models | Python 3.10+, pydantic v2 | Work orders, answers and citations are typed models; invalid data fails loudly |
+| Reading PDFs | [design-ingest](https://github.com/owl-solar/design-ingest) (own package, pinned to tag v0.7.0) | Text per page, tables, and fault-code readers for three table layouts (Sungrow, Huawei, SMA); the Copilot never opens a PDF itself |
+| Exact fault-code lookup | Own code, regular expressions | A number is a code only after a cue word (fault, alarm, error, event, code); ranges such as 448-479 match; a token like F0234 counts only if it equals a code in some manual's table |
+| Keyword search | BM25 (k1 = 1.5, b = 0.75), offline | Strong on part names and exact terms |
+| Semantic search | `BAAI/bge-small-en-v1.5` through fastembed, 64 MB, runs on your machine | Finds a passage when the question uses other words than the manual; downloaded once on request |
+| Combining searches | Reciprocal rank fusion (k = 60, top 50 of each), then exact code hits go first | Embeddings blur numbers, so exact lookup fixes the order for codes |
+| Answer writing | Anthropic Messages API, Claude Haiku 5.5 (`claude-haiku-5-5`) | Sees only the top 8 passages; the only paid step; blocked by default behind a guard in design-ingest that needs `--allow-external` and can enforce a token budget |
+| Answer checking | Plain code | Every quote is compared with the passage it cites; reworded or invented quotes are flagged |
+| Incidents | Time-window grouping | Same code on the same inverter within 6 h is one incident; 3 incidents in 30 days is a repeat; all numbers in `config_default.json` |
+| Priority | Rule table, no model | Manual severity (Critical P1, Major P2, other P3), one level up for a large inverter (rated power at or above 1000 kW), one level up for a repeat; each step is written into the order; respond-by from the SLA table (P1 4 h, P2 24 h, P3 72 h) |
+| Agent access | [Model Context Protocol](https://modelcontextprotocol.io), official Python SDK 2.x, stdio | Eight tools and one resource; only `propose_work_order` writes, and only a draft |
+| Bounded agent (experiment) | Claude Haiku through an in-process MCP client | At most 5 tool rounds, then the final reply is forced; spending cap in USD |
+| Demo page | Streamlit (optional extra) | Four tabs over the same functions |
+| Export and audit | CSV (with BOM) and JSON | Each order has a stable id, the manual's file and pages, and the sha256 of that exact file |
+| Test data | Own generator, seed 42 | 1000 synthetic events with planted alarm storms and chronic repeats, so checks know the right answer |
+| Quality | pytest (96 tests), ruff | Tests use invented records only |
+
+Outside services: the Anthropic API (only when you allow it and only for questions, never for work orders) and a one-time download of the embedding model. Nothing else leaves the machine; the manuals and the fault log stay local.
 
 ## Why it is useful
 
@@ -16,6 +88,7 @@ Status: working CLI, evaluated on 25 questions over three manuals. See [PLAN.md]
   it is first in 11 of 12 cases.
 - **Work orders need no AI.** Steps are the manual's own corrective measures with their pages and
   the priority comes from a plain table: same input, same order, no cost, nothing invented.
+- **People stay in charge.** Drafts only; approval is a named person's action, never the tool's or an agent's.
 
 ## Where AI is used, and where it is not
 
@@ -32,13 +105,8 @@ Status: working CLI, evaluated on 25 questions over three manuals. See [PLAN.md]
 Why the mix: keyword search alone put the right page in the top 5 for 77% of questions;
 embeddings alone reached 95% but blurred numbers (fault codes first in only 58% of cases);
 embeddings plus the exact code lookup reached 100% (92% first for codes). The model is used
-once, at the end, and is never trusted without the quote check.
-
-## How it works
-
-Manuals are read with [design-ingest](https://github.com/owl-solar/design-ingest) (pinned to a git tag).
-The table above shows each step and whether it uses a model; the plan and evaluation details are in
-[PLAN.md](PLAN.md).
+once, at the end, and is never trusted without the quote check. Measured numbers for every stage,
+including an agent and a "whole manuals in the prompt" baseline, are in [Comparing the stages](#comparing-the-stages).
 
 ## Data
 
@@ -49,7 +117,7 @@ Manufacturer manuals are copyrighted and **not** in this repository. Download th
 ```bash
 python -m venv .venv
 .venv\Scripts\activate          # Windows
-pip install -e ".[dev]"
+pip install -e ".[dev]"          # add ,ui and ,mcp for the demo page and the MCP server
 copy .env.example .env          # then fill in ANTHROPIC_API_KEY if you want LLM answers
 pytest
 ```
