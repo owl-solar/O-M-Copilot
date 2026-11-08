@@ -42,10 +42,10 @@ om-copilot eval-answers --allow-external  # 25 paid calls, about 1.5 cents with 
 | Retrieval, BM25 only | hit@5 / MRR on 22 answerable questions | 0.77 / 0.76 |
 | Retrieval, hybrid + exact code lookup | hit@5 / MRR | 1.00 / 0.83 |
 | Answers (Claude Haiku) | citations verified word for word | 100% |
-| | answers with an expected page cited | 21 of 22 (the miss cites another page with the same statement) |
+| | answers with an expected page cited | 22 of 22 |
 | | questions without an answer refused | 3 of 3 |
 
-The question set and expected pages are in `eval/questions.json`; expected pages are still being checked by hand.
+The question set and expected pages are in `eval/questions.json`; expected pages were checked by hand against the PDFs.
 
 ## Draft work order (format)
 
