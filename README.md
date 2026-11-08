@@ -71,7 +71,7 @@ om-copilot eval-answers --allow-external  # 25 paid calls, about 1.5 cents with 
 
 Manuals of other manufacturers or models work the same way as the three used for the evaluation.
 
-1. **Add it:** `om-copilot add-manual "C:path	oManual.pdf" --model ABC-1000`.
+1. **Add it:** `om-copilot add-manual "C:\path	o\Manual.pdf" --model ABC-1000`.
    The PDF is copied to `data/raw/`, read, and checked; the model label (`ABC-1000`, the value your fault
    log has in `model`) is saved in `data/config.local.json` (git-ignored). Without `--model` the file name is used.
 2. **Read the report.** It shows pages, fault codes found and what needs attention:
