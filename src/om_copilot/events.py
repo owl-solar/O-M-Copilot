@@ -147,6 +147,15 @@ def group(events: list[dict[str, Any]], window_hours: float | None = None, repea
     return sorted(incidents, key=lambda i: (i["ts"], i["asset_id"]))
 
 
+def repeat_pairs(incidents: list[dict[str, Any]], min_repeats: int = 4) -> dict[tuple[str, int], list[dict[str, Any]]]:
+    """(asset, fault code) -> its repeat incidents, for pairs with at least ``min_repeats`` of them."""
+    pairs: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
+    for i in incidents:
+        if i["repeated"]:
+            pairs[(i["asset_id"], int(i["fault_code"]))].append(i)
+    return {k: v for k, v in pairs.items() if len(v) >= min_repeats}
+
+
 def summary(events: list[dict[str, Any]], incidents: list[dict[str, Any]]) -> dict[str, int]:
     """The numbers a person wants first: events in, incidents out, repeats, alarms saved."""
     return {"events": len(events), "incidents": len(incidents),

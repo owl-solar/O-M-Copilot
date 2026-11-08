@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from . import config
+from .events import repeat_pairs
 from .mcp_server import Tools
 from .synth import CodeRef
 
@@ -127,23 +128,28 @@ QA_SYSTEM = (
     "contain the answer, set found=false and say what is missing. Keep the answer short and keep the units."
 )
 QA_TOOLS = {"search_manual", "lookup_fault_code", "list_manuals"}
-QA_REPLY = {"type": "object", "required": ["answer", "found", "citations"], "properties": {
-    "answer": {"type": "string"}, "found": {"type": "boolean", "description": "false if the tools do not contain the answer"},
+# field order matters: with the long free-text `answer` first, the model sometimes wrote the later fields into it
+QA_REPLY = {"type": "object", "required": ["found", "citations", "answer"], "properties": {
+    "found": {"type": "boolean", "description": "false if the tools do not contain the answer"},
     "citations": {"type": "array", "items": {"type": "object", "required": ["file", "page", "quote"], "properties": {
-        "file": {"type": "string"}, "page": {"type": "integer"}, "quote": {"type": "string"}}}}}}
+        "file": {"type": "string"}, "page": {"type": "integer"}, "quote": {"type": "string"}}}},
+    "answer": {"type": "string"}}}
 
 LOG_SYSTEM = (
     "You help a plant operator with a synthetic fault log through tools. Facts and numbers come only from tool "
     "output. You can only save DRAFT work orders; a person approves them. Finish by calling `report`."
 )
 LOG_TASK = (
-    "Find the chronic repeats: pairs of inverter and fault code that came back as a repeat incident (use "
-    "get_incidents with repeated_only=true; page through all results with offset) at least {min_repeats} times. "
-    "Then save a draft work order (propose_work_order) for the two most urgent repeat incidents of those pairs "
-    "(highest priority first, then earliest respond_by). Report the pairs with their number of repeat incidents "
-    "and the two drafts with priority and respond_by."
+    "Find the chronic repeats: pairs of inverter and fault code that came back as a repeat incident at least "
+    "{min_repeats} times. Then save a draft work order (propose_work_order) for the two most urgent repeat "
+    "incidents of those pairs (highest priority first, then earliest respond_by). Report the pairs with their "
+    "number of repeat incidents and the two drafts with priority and respond_by."
 )
-LOG_TOOLS = {"get_incidents", "get_work_order", "propose_work_order", "list_manuals"}
+LOG_TASK_NO_AGGREGATE = LOG_TASK.replace(
+    "Find the chronic repeats:", "Find the chronic repeats (use get_incidents with repeated_only=true and page through "
+    "all results with offset):")
+LOG_TOOLS = {"get_repeat_pairs", "get_incidents", "get_work_order", "propose_work_order", "list_manuals"}
+LOG_TOOLS_NO_AGGREGATE = LOG_TOOLS - {"get_repeat_pairs"}
 LOG_REPORT = {"type": "object", "required": ["pairs", "drafts", "summary"], "properties": {
     "pairs": {"type": "array", "items": {"type": "object", "required": ["asset_id", "fault_code", "repeat_incidents"],
         "properties": {"asset_id": {"type": "string"}, "fault_code": {"type": "integer"}, "repeat_incidents": {"type": "integer"}}}},
@@ -153,29 +159,49 @@ LOG_REPORT = {"type": "object", "required": ["pairs", "drafts", "summary"], "pro
 MIN_REPEATS = 4
 
 
-def answer_from_reply(question: str, reply: dict[str, Any] | None, page_text: dict, model: str | None) -> Any:
+def answer_from_reply(question: str, reply: dict[str, Any] | None, page_text: dict, model: str | None) -> tuple[Any, bool]:
     """The model's reply as a design-ingest Answer whose quotes are checked against the page text, so the
-    same ``grade`` that scores the pipeline and the baseline scores the agent."""
+    same ``grade`` that scores the pipeline and the baseline scores the agent. A reply that misses a required
+    field (the API does not enforce the schema) counts as not found; returns (answer, malformed)."""
     from design_ingest.ask import Answer, Citation
 
     from .baseline import _norm
 
-    reply = reply or {"answer": "(no structured reply)", "found": False, "citations": []}
-    cites = [Citation(n=0, file=c["file"], page=c["page"], kind=None, quote=c["quote"],
-                      verified=bool(c["quote"].strip()) and _norm(c["quote"]) in _norm(page_text.get((c["file"], c["page"]), "")))
-             for c in reply.get("citations", [])]
-    return Answer(question=question, answer=reply["answer"], found=bool(reply["found"]),
-                  verified=any(c.verified for c in cites), citations=cites, model=model)
+    reply = reply or {}
+    malformed = not all(k in reply for k in ("answer", "found", "citations"))
+    cites = []
+    for c in reply.get("citations") or []:
+        if not all(k in c for k in ("file", "page", "quote")):
+            malformed = True
+            continue
+        ok = bool(c["quote"].strip()) and _norm(c["quote"]) in _norm(page_text.get((c["file"], c["page"]), ""))
+        cites.append(Citation(n=0, file=c["file"], page=c["page"], kind=None, quote=c["quote"], verified=ok))
+    answer = Answer(question=question, answer=reply.get("answer") or "(no structured reply)",
+                    found=bool(reply.get("found")) and not malformed, verified=any(c.verified for c in cites),
+                    citations=cites, model=model)
+    return answer, malformed
+
+
+def tool_evidence(calls: list[dict[str, Any]]) -> dict[tuple[str, int], str]:
+    """Text each (file, page) was shown to the model as, from lookup_fault_code and search_manual outputs.
+    A quote is checked against this: the same kind of check the pipeline does against the passages it sent."""
+    found: dict[tuple[str, int], list[str]] = {}
+    for c in calls:
+        out = c["output"] if isinstance(c["output"], dict) else {}
+        for m in out.get("matches", []) if c["name"] == "lookup_fault_code" else []:
+            s = m["source"]
+            text = " ".join([m.get("name") or "", *m.get("measures", []), str(m.get("causes") or "")])
+            for page in range(s["page"], (s.get("page_end") or s["page"]) + 1):
+                found.setdefault((s["file"], page), []).append(text)
+        for h in out.get("hits", []) if c["name"] == "search_manual" else []:
+            found.setdefault((h["file"], h["page"]), []).append(h["text"])
+    return {k: " ".join(v) for k, v in found.items()}
 
 
 def oracle_chronic(incidents: list[dict[str, Any]], min_repeats: int = MIN_REPEATS) -> dict[tuple[str, int], int]:
-    """(asset, code) -> number of repeat incidents, for pairs with at least ``min_repeats`` of them."""
-    counts: dict[tuple[str, int], int] = {}
-    for i in incidents:
-        if i["repeated"]:
-            key = (i["asset_id"], int(i["fault_code"]))
-            counts[key] = counts.get(key, 0) + 1
-    return {k: v for k, v in counts.items() if v >= min_repeats}
+    """(asset, code) -> number of repeat incidents, for pairs with at least ``min_repeats`` of them. The same
+    function the get_repeat_pairs tool uses: the tool's count is code; the test is whether the model uses it."""
+    return {k: len(v) for k, v in repeat_pairs(incidents, min_repeats).items()}
 
 
 def check_log_run(tools: Tools, truth: list[dict[str, Any]], outputs: list[Any], result: dict[str, Any] | None) -> dict[str, Any]:

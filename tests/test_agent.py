@@ -111,9 +111,11 @@ def test_quotes_are_checked_against_the_page_text():
     pages = {("f.pdf", 3): "Check   the string layout first."}
     reply = {"answer": "x", "found": True, "citations": [
         {"file": "f.pdf", "page": 3, "quote": "check the string layout"}, {"file": "f.pdf", "page": 4, "quote": "check"}]}
-    a = answer_from_reply("q", reply, pages, None)
-    assert [c.verified for c in a.citations] == [True, False] and a.verified
-    assert answer_from_reply("q", None, pages, None).found is False
+    a, malformed = answer_from_reply("q", reply, pages, None)
+    assert [c.verified for c in a.citations] == [True, False] and a.verified and not malformed
+    a, malformed = answer_from_reply("q", {"answer": "x", "citations": []}, pages, None)  # 'found' is missing
+    assert a.found is False and malformed
+    assert answer_from_reply("q", None, pages, None)[0].found is False
 
 
 def test_log_report_is_scored(tools):
@@ -134,3 +136,34 @@ def test_log_report_is_scored(tools):
 def test_task_tool_sets_are_consistent():
     assert "propose_work_order" in LOG_TOOLS and "propose_work_order" not in QA_TOOLS
     assert "approve" not in " ".join(LOG_TOOLS | QA_TOOLS) and LOG_REPORT["required"]
+
+
+def test_quotes_are_checked_against_what_the_tools_returned():
+    from om_copilot.agent_eval import tool_evidence
+
+    calls = [
+        {"name": "lookup_fault_code", "output": {"matches": [{"name": "Fan fault", "measures": ["1. Check the fan."],
+                                                               "source": {"file": "f.pdf", "page": 5, "page_end": 6}}]}},
+        {"name": "search_manual", "output": {"hits": [{"file": "g.pdf", "page": 9, "text": "Power off first."}]}},
+        {"name": "get_incidents", "output": {"incidents": []}},
+    ]
+    ev = tool_evidence(calls)
+    assert set(ev) == {("f.pdf", 5), ("f.pdf", 6), ("g.pdf", 9)}
+    reply = {"answer": "a", "found": True, "citations": [
+        {"file": "f.pdf", "page": 6, "quote": "1. Check the fan."}, {"file": "g.pdf", "page": 9, "quote": "power off"},
+        {"file": "g.pdf", "page": 10, "quote": "power off"}]}
+    a, _ = answer_from_reply("q", reply, ev, None)
+    assert [c.verified for c in a.citations] == [True, True, False]
+
+
+def test_a_model_that_stops_with_text_is_reminded_once(tools):
+    text = SimpleNamespace(type="text", text="Here is my summary.")
+    final = use("reply", answer="a", found=True, citations=[])
+    client = FakeClient([text, final], final)
+    run = go(tools, client)
+    assert run.nudged and run.result["found"] is True and run.rounds == 0
+    assert any(isinstance(m["content"], str) and "Call the `reply` tool" in m["content"]
+               for m in client.requests[1]["messages"])
+    client = FakeClient([text, text], final)  # text twice: no result, no endless loop
+    run = go(tools, client)
+    assert run.result is None and run.nudged and run.text == "Here is my summary."

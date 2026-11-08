@@ -273,7 +273,8 @@ def cmd_eval_agent_llm(args: argparse.Namespace) -> int:
             try:
                 run = asyncio.run(run_agent(
                     tools, client=client, spend=spend, system=ae.LOG_SYSTEM,
-                    user=ae.LOG_TASK.format(min_repeats=ae.MIN_REPEATS), allowed=ae.LOG_TOOLS, final_name="report",
+                    user=(ae.LOG_TASK_NO_AGGREGATE if args.no_aggregate else ae.LOG_TASK).format(min_repeats=ae.MIN_REPEATS),
+                    allowed=ae.LOG_TOOLS_NO_AGGREGATE if args.no_aggregate else ae.LOG_TOOLS, final_name="report",
                     final_description="Final report.", final_schema=ae.LOG_REPORT, max_steps=args.max_steps,
                     allow_external=allow))
             except BudgetStop as e:
@@ -281,9 +282,11 @@ def cmd_eval_agent_llm(args: argparse.Namespace) -> int:
                 return 1
             res = ae.check_log_run(tools, truth, run.outputs, run.result)
         summary = {k: v for k, v in res.items() if k != "failures"}
-        summary.update(rounds=run.rounds, forced=run.forced, seconds=round(run.seconds, 1), usd=round(run.usd, 4),
+        summary.update(rounds=run.rounds, forced=run.forced, nudged=run.nudged, seconds=round(run.seconds, 1), usd=round(run.usd, 4),
                        input_tokens=run.input_tokens, output_tokens=run.output_tokens)
         print(json.dumps(summary, indent=1))
+        if run.result is None:
+            print("last text of the model:", run.text[:600])
         for name, items in res["failures"].items():
             for item in items[:6]:
                 print(f"  FAIL {name}: {item}")
@@ -295,7 +298,7 @@ def cmd_eval_agent_llm(args: argparse.Namespace) -> int:
     questions = questions[: args.limit] if args.limit else questions
     _ctx, page_text = build_context(docs)
     tools = Tools(docs=docs, retriever=Retriever(docs, mode="hybrid"))
-    grades, runs = [], []
+    grades, runs, raw = [], [], []
     for q in questions:
         try:
             run = asyncio.run(run_agent(
@@ -305,8 +308,13 @@ def cmd_eval_agent_llm(args: argparse.Namespace) -> int:
         except BudgetStop as e:
             print(f"STOP: {e}")
             break
-        a = ae.answer_from_reply(q["question"], run.result, page_text, None)
+        a, malformed = ae.answer_from_reply(q["question"], run.result, ae.tool_evidence(run.calls), None)
         g = grade(q, a)
+        strict, _ = ae.answer_from_reply(q["question"], run.result, page_text, None)  # against the whole page text
+        g["malformed"] = malformed
+        g["quotes_on_page"] = (all(c.verified for c in strict.citations) and bool(strict.citations)) if q["answerable"] else None
+        raw.append({"id": q["id"], "result": run.result, "calls": run.calls, "rounds": run.rounds, "seconds": run.seconds,
+                    "usd": run.usd})
         grades.append(g)
         runs.append(run)
         print(f"{q['id']} {'PASS' if g['ok'] else 'FAIL'} rounds={run.rounds}{' FORCED' if run.forced else ''} "
@@ -317,11 +325,13 @@ def cmd_eval_agent_llm(args: argparse.Namespace) -> int:
     stats = {**summarize_grades(grades), "questions": len(runs),
              "median_seconds": round(lat[len(lat) // 2], 1) if lat else None,
              "p95_seconds": round(lat[min(len(lat) - 1, int(len(lat) * 0.95))], 1) if lat else None,
-             "forced_replies": sum(r.forced for r in runs), "mean_rounds": round(sum(r.rounds for r in runs) / max(1, len(runs)), 2),
+             "quotes_found_on_cited_page": round(sum(1 for g in grades if g.get("quotes_on_page")) / max(1, sum(1 for g in grades if "found" in g)), 3),
+             "forced_replies": sum(r.forced for r in runs), "malformed_replies": sum(g["malformed"] for g in grades), "mean_rounds": round(sum(r.rounds for r in runs) / max(1, len(runs)), 2),
              "usd_total": round(spend.usd, 4), "usd_per_question": round(spend.usd / max(1, len(runs)), 4),
              "input_tokens": spend.input_tokens, "output_tokens": spend.output_tokens}
     print(json.dumps(stats, indent=1))
     _save_result(f"agent_questions_{args.tag}", stats)
+    _save_result(f"agent_questions_{args.tag}_raw", {"runs": raw})  # contains manual text: data/ is git-ignored
     return 0
 
 
@@ -536,6 +546,7 @@ def main(argv: list[str] | None = None) -> int:
     al.add_argument("--max-steps", type=int, default=5, help="rounds of tool calls before the reply is forced")
     al.add_argument("--max-usd", type=float, default=0.2, help="stop when the estimated spend passes this")
     al.add_argument("--tag", default="run1", help="name of the result file in data/compare/")
+    al.add_argument("--no-aggregate", action="store_true", help="log task without the get_repeat_pairs tool")
     al.add_argument("--show", action="store_true")
     al.add_argument("--allow-external", action="store_true")
     al.set_defaults(func=cmd_eval_agent_llm)
@@ -581,6 +592,9 @@ def main(argv: list[str] | None = None) -> int:
         p2.add_argument("--allow-external", action="store_true", help="allow the paid call to the model")
         p2.set_defaults(func=fn)
     args = parser.parse_args(argv)
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")  # manual text has characters the Windows console lacks
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
     try:
         return args.func(args)

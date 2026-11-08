@@ -52,6 +52,8 @@ class AgentRun:
     calls: list[dict[str, Any]] = field(default_factory=list)  # name, arguments, output of every tool call
     rounds: int = 0
     forced: bool = False  # the step limit was reached and the final reply was forced
+    nudged: bool = False  # the model stopped with plain text once and was told to call the final tool
+    text: str = ""  # last plain text of the model, for diagnosis
     seconds: float = 0.0
     usd: float = 0.0
     input_tokens: int = 0
@@ -98,8 +100,13 @@ async def run_agent(tools: Tools, *, client: Any, spend: Spend, system: str, use
                 if done is not None:
                     run.result, run.forced = dict(done.input), force
                     break
+                run.text = " ".join(getattr(b, "text", "") for b in resp.content if getattr(b, "type", None) == "text")
                 if not uses:
-                    break  # the model answered in plain text: no structured reply
+                    if run.nudged:
+                        break  # plain text again: no structured reply
+                    run.nudged = True  # one reminder, not a tool round
+                    messages.append({"role": "user", "content": f"Call the `{final_name}` tool now with your final answer."})
+                    continue
                 run.rounds += 1
                 results = []
                 for use in uses:

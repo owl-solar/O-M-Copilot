@@ -98,7 +98,7 @@ def test_server_registers_the_tools(tools):
     server = build_server(tools)
     listed = asyncio.run(server.list_tools())
     assert {t.name for t in listed} == {"list_manuals", "lookup_fault_code", "search_manual", "ask_manual", "get_incidents",
-                                        "get_work_order", "propose_work_order"}
+                                        "get_repeat_pairs", "get_work_order", "propose_work_order"}
     result = asyncio.run(server.call_tool("lookup_fault_code", {"code": 2001}))
     assert "String Voltage High" in str(result)
 
@@ -237,3 +237,13 @@ def test_lookup_accepts_letter_codes(tools):
         assert [x["source"]["page"] for x in m] == [30]
     finally:
         DOC.data["fault_codes"].pop()
+
+
+def test_repeat_pairs_are_counted_by_code(tmp_path):
+    # one inverter brings code 2001 back every 5 days (3rd incident on is a repeat), another has a single alarm
+    rows = [_event(f"2026-01-{d:02d}T08:00:00") for d in (2, 7, 12, 17, 22)] + [_event("2026-01-09T08:00:00", asset="INV-02")]
+    t = Tools(docs=[DOC], retriever=FakeRetriever(), log_path=_log(tmp_path, rows), orders_dir=str(tmp_path / "o"))
+    r = t.get_repeat_pairs(min_repeats=3)
+    assert [(p["asset_id"], p["fault_code"], p["repeat_incidents"]) for p in r["pairs"]] == [("INV-15", 2001, 3)]
+    assert len(r["pairs"][0]["incidents"]) == 3 and r["pairs"][0]["incidents"][0]["priority"] == "P1"
+    assert t.get_repeat_pairs(min_repeats=4)["pairs"] == []

@@ -20,7 +20,7 @@ from design_ingest.llm import ExternalCallBlocked
 from . import config
 from .answer import answer
 from .corpus import load_documents
-from .events import filter_incidents, group, read_log
+from .events import filter_incidents, group, read_log, repeat_pairs
 from .manuals import manifest
 from .orders import load as load_order
 from .orders import orders_dir as orders_dir_default
@@ -149,6 +149,21 @@ class Tools:
         return {"summary": stats, "matching": len(chosen), "shown": len(rows),
                 "incidents": rows}
 
+    def get_repeat_pairs(self, min_repeats: int = 4) -> dict[str, Any]:
+        """Inverter and fault code pairs that came back as repeat incidents at least ``min_repeats`` times, with
+        the count (computed by code) and each repeat incident's id, time, priority and respond-by time."""
+        incidents, _ = self._incidents()
+        pairs = []
+        for (asset, code), items in sorted(repeat_pairs(incidents, max(2, min_repeats)).items(),
+                                           key=lambda kv: (-len(kv[1]), kv[0])):
+            rows = []
+            for inc in items:
+                wo = build(self.docs, inc)
+                rows.append({"id": wo.id, "ts": inc["ts"], "priority": wo.priority, "respond_by": wo.respond_by})
+            pairs.append({"asset_id": asset, "fault_code": code, "model": items[0]["model"],
+                          "repeat_incidents": len(items), "incidents": rows})
+        return {"min_repeats": min_repeats, "pairs": pairs}
+
     def get_work_order(self, order_id: str) -> dict[str, Any]:
         """A saved work order (with its status), else a fresh draft built from the incident with this id."""
         if not SAFE_ID.match(order_id):
@@ -187,7 +202,7 @@ def build_server(tools: Tools | None = None) -> Any:
     server = MCPServer("om-copilot", instructions=INSTRUCTIONS)
     read_only = ToolAnnotations(readOnlyHint=True)
     for fn in (tools.list_manuals, tools.lookup_fault_code, tools.search_manual, tools.ask_manual, tools.get_incidents,
-               tools.get_work_order):
+               tools.get_repeat_pairs, tools.get_work_order):
         server.tool(annotations=read_only)(fn)
     # the only write: a draft file; idempotent, not destructive; there is no approve tool
     server.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True))(
