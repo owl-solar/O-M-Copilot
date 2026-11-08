@@ -34,3 +34,6 @@ build/
 logs/
 out/
 .cache/
+
+# project instructions for Claude Code: local only
+CLAUDE.md

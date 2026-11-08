@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
-    # pinned tag; change on purpose after own checks (see CLAUDE.md, Decisions)
+    # pinned tag; change on purpose after own checks
     "design-ingest[llm,embeddings] @ git+https://github.com/owl-solar/design-ingest@v0.7.0",
     "pydantic>=2.5",
 ]
