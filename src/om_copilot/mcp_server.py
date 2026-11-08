@@ -120,7 +120,7 @@ class Tools:
         return group(report.events), len(report.events)
 
     def get_incidents(self, repeated_only: bool = False, model: str | None = None, site: str | None = None,
-                      asset_id: str | None = None, limit: int = 20) -> dict[str, Any]:
+                      asset_id: str | None = None, limit: int = 20, offset: int = 0) -> dict[str, Any]:
         """Incidents from the fault log: alarm storms merged, repeats marked, priority and respond-by time."""
         incidents, n_events = self._incidents()
         chosen = filter_incidents(incidents, repeated_only=repeated_only,
@@ -128,7 +128,7 @@ class Tools:
         if asset_id:
             chosen = [i for i in chosen if i["asset_id"] == asset_id]
         rows = []
-        for inc in chosen[: max(1, min(limit, MAX_ROWS))]:
+        for inc in chosen[max(0, offset): max(0, offset) + max(1, min(limit, MAX_ROWS))]:
             wo = build(self.docs, inc)
             rows.append({"id": wo.id, "ts": inc["ts"], "asset_id": inc["asset_id"], "site": inc["site"],
                          "model": inc["model"], "fault_code": inc["fault_code"], "occurrences": inc["occurrences"],

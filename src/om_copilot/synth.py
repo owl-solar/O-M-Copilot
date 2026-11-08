@@ -58,11 +58,15 @@ def code_pool(docs: Iterable[Document]) -> list[CodeRef]:
 
 
 def generate(pool: list[CodeRef], n: int = 1000, seed: int = 42, cluster_share: float = 0.25,
-             storm_share: float = 0.2, chronic: int = 3) -> list[FaultEvent]:
+             storm_share: float = 0.2, chronic: int = 3, truth: list[dict] | None = None) -> list[FaultEvent]:
     """``n`` events sorted by time. ``pool`` must not be empty.
 
     Besides clusters (many inverters, one code) there are alarm storms (one inverter repeats one code within
     hours, ``storm_share`` of the events) and ``chronic`` inverters that bring the same code back every few days.
+
+    If a list is passed as ``truth`` it is filled with what the generator put in (kind "storm", "chronic" or
+    "cluster", model, code, asset_id, number of events that survived in the log), for evaluating a reader of
+    the log. The events themselves do not depend on it.
     """
     if not pool:
         raise ValueError("empty code pool: no fault codes found in the manuals")
@@ -80,9 +84,13 @@ def generate(pool: list[CodeRef], n: int = 1000, seed: int = 42, cluster_share: 
         return START + timedelta(seconds=rng.randrange(DAYS * 86400))
 
     events: list[FaultEvent] = []
+    groups: list[tuple[str, CodeRef, str | None, list[FaultEvent]]] = []
 
-    def add(ref: CodeRef, asset: str, when: datetime) -> None:
-        events.append(FaultEvent(when.isoformat(timespec="seconds"), asset, ref.model, ref.code, ref.severity, site_of[(ref.model, asset)]))
+    def add(ref: CodeRef, asset: str, when: datetime, group: list[FaultEvent] | None = None) -> None:
+        e = FaultEvent(when.isoformat(timespec="seconds"), asset, ref.model, ref.code, ref.severity, site_of[(ref.model, asset)])
+        events.append(e)
+        if group is not None:
+            group.append(e)
 
     n_cluster = int(n * cluster_share)
     while len(events) < n_cluster:
@@ -92,25 +100,38 @@ def generate(pool: list[CodeRef], n: int = 1000, seed: int = 42, cluster_share: 
         if not members:
             continue
         t0 = moment()
+        members_hit: list[FaultEvent] = []
+        groups.append(("cluster", ref, None, members_hit))
         for asset in rng.sample(members, k=min(len(members), rng.randint(3, 6))):
-            add(ref, asset, t0 + timedelta(seconds=rng.randrange(1800)))
+            add(ref, asset, t0 + timedelta(seconds=rng.randrange(1800)), members_hit)
     del events[n_cluster:]
     for _ in range(chronic):
         ref = rng.choices(ranked, weights)[0]
         asset = rng.choice(fleet[ref.model])
         t0 = moment() - timedelta(days=60)
+        mine: list[FaultEvent] = []
+        groups.append(("chronic", ref, asset, mine))
         for k in range(rng.randint(4, 6)):
-            add(ref, asset, max(START, t0) + timedelta(days=k * rng.randint(3, 8), seconds=rng.randrange(3600)))
+            add(ref, asset, max(START, t0) + timedelta(days=k * rng.randint(3, 8), seconds=rng.randrange(3600)), mine)
     n_storm = len(events) + int(n * storm_share)
     while len(events) < n_storm:
         ref = rng.choices(ranked, weights)[0]
         asset, t0 = rng.choice(fleet[ref.model]), moment()
+        mine = []
+        groups.append(("storm", ref, asset, mine))
         for _ in range(rng.randint(3, 12)):
-            add(ref, asset, t0 + timedelta(seconds=rng.randrange(3 * 3600)))
+            add(ref, asset, t0 + timedelta(seconds=rng.randrange(3 * 3600)), mine)
     del events[n:]
     while len(events) < n:
         ref = rng.choices(ranked, weights)[0]
         add(ref, rng.choice(fleet[ref.model]), moment())
+    if truth is not None:
+        alive = {id(e) for e in events}
+        for kind, ref, asset, items in groups:
+            kept = [e for e in items if id(e) in alive]
+            if kept:
+                truth.append({"kind": kind, "model": ref.model, "code": ref.code, "asset_id": asset,
+                              "events": len(kept)})
     return sorted(events, key=lambda e: (e.ts, e.asset_id))
 
 

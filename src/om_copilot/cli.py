@@ -201,6 +201,38 @@ def cmd_ui(args: argparse.Namespace) -> int:
                             "--server.headless", "true", "--browser.gatherUsageStats", "false"])
 
 
+def cmd_eval_agent(args: argparse.Namespace) -> int:
+    """Scripted agent (no LLM, free) on a fresh synthetic log whose storms and chronic repeats are known."""
+    import tempfile
+
+    from .agent_eval import passed, run_checks, scripted_agent
+    from .mcp_server import Tools
+
+    docs = load_documents(args.folder)
+    pool = code_pool(docs)
+    truth: list[dict] = []
+    events = generate(pool, n=args.n, seed=args.seed, truth=truth)
+    with tempfile.TemporaryDirectory() as tmp:
+        log = Path(tmp) / "log.jsonl"
+        write_jsonl(events, log)
+        tools = Tools(docs=docs, retriever=Retriever(docs, mode="bm25"), log_path=str(log), orders_dir=str(Path(tmp) / "orders"))
+        run = scripted_agent(tools, truth)
+        res = run_checks(tools, truth, pool, run)
+    kinds = Counter(t["kind"] for t in truth)
+    print(f"{len(events)} events (seed {args.seed}); known to the generator: {kinds['storm']} storms, "
+          f"{kinds['chronic']} chronic repeats, {kinds['cluster']} clusters")
+    print(f"storms merged into one incident: {res['storms']}")
+    print(f"chronic repeats flagged:         {res['chronic']}")
+    print(f"priority and deadline follow the rules: {res['priority']}")
+    print(f"writes: {res['writes']}")
+    print(f"numbers in the report missing from tool output: {res['ungrounded_numbers']}")
+    for name, items in res["failures"].items():
+        for item in items[:5]:
+            print(f"  FAIL {name}: {item}")
+    print("\nreport:\n" + run["report"])
+    return 0 if passed(res) else 1
+
+
 def cmd_approve(args: argparse.Namespace) -> int:
     """A person approves a saved draft work order (the agent has no such tool)."""
     try:
@@ -386,6 +418,11 @@ def main(argv: list[str] | None = None) -> int:
     u = sub.add_parser("ui", help="open the demo page in the browser (extra: ui)")
     u.add_argument("--port", type=int, default=8501)
     u.set_defaults(func=cmd_ui)
+    ea = sub.add_parser("eval-agent", help="scripted agent on the synthetic log with known storms and repeats (free)")
+    ea.add_argument("--folder", help="folder with PDFs (default: data/raw)")
+    ea.add_argument("--n", type=int, default=1000)
+    ea.add_argument("--seed", type=int, default=42)
+    ea.set_defaults(func=cmd_eval_agent)
     ap = sub.add_parser("approve", help="a person approves a saved draft work order")
     ap.add_argument("order_id")
     ap.add_argument("--by", required=True, help="name of the person who approves")
