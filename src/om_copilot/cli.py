@@ -233,6 +233,93 @@ def cmd_eval_agent(args: argparse.Namespace) -> int:
     return 0 if passed(res) else 1
 
 
+def _save_result(name: str, data: dict) -> None:
+    out = Path("data/compare")
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"{name}.json").write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+
+
+def cmd_eval_agent_llm(args: argparse.Namespace) -> int:
+    """PAID: Claude calls the MCP tools in a loop (step limit, spending cap). Two tasks: the 25 questions or
+    the chronic-repeat task on the synthetic log."""
+    import asyncio
+    import tempfile
+
+    import anthropic
+
+    from . import agent_eval as ae
+    from .agent import BudgetStop, Spend, run_agent
+    from .mcp_server import Tools
+
+    os.environ.setdefault("DESIGN_INGEST_TOKEN_BUDGET", "1000000")
+    client, spend = anthropic.Anthropic(), Spend(cap_usd=args.max_usd)
+    docs = load_documents(args.folder)
+    allow = args.allow_external or None
+    print(f"task {args.task}; at most {args.max_steps} tool rounds; spending cap ${args.max_usd:.2f}")
+    if args.task == "log":
+        pool = code_pool(docs)
+        truth: list[dict] = []
+        events = generate(pool, n=1000, seed=42, truth=truth)
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            write_jsonl(events, log)
+            tools = Tools(docs=docs, retriever=Retriever(docs, mode="bm25"), log_path=str(log),
+                          orders_dir=str(Path(tmp) / "orders"))
+            try:
+                run = asyncio.run(run_agent(
+                    tools, client=client, spend=spend, system=ae.LOG_SYSTEM,
+                    user=ae.LOG_TASK.format(min_repeats=ae.MIN_REPEATS), allowed=ae.LOG_TOOLS, final_name="report",
+                    final_description="Final report.", final_schema=ae.LOG_REPORT, max_steps=args.max_steps,
+                    allow_external=allow))
+            except BudgetStop as e:
+                print(f"STOP: {e}")
+                return 1
+            res = ae.check_log_run(tools, truth, run.outputs, run.result)
+        summary = {k: v for k, v in res.items() if k != "failures"}
+        summary.update(rounds=run.rounds, forced=run.forced, seconds=round(run.seconds, 1), usd=round(run.usd, 4),
+                       input_tokens=run.input_tokens, output_tokens=run.output_tokens)
+        print(json.dumps(summary, indent=1))
+        for name, items in res["failures"].items():
+            for item in items[:6]:
+                print(f"  FAIL {name}: {item}")
+        _save_result(f"agent_log_{args.tag}", {**summary, "failures": res["failures"]})
+        return 0
+    questions = load_questions(args.questions)
+    if args.ids:
+        questions = [q for q in questions if q["id"] in args.ids.split(",")]
+    questions = questions[: args.limit] if args.limit else questions
+    _ctx, page_text = build_context(docs)
+    tools = Tools(docs=docs, retriever=Retriever(docs, mode="hybrid"))
+    grades, runs = [], []
+    for q in questions:
+        try:
+            run = asyncio.run(run_agent(
+                tools, client=client, spend=spend, system=ae.QA_SYSTEM, user=f"Question: {q['question']}",
+                allowed=ae.QA_TOOLS, final_name="reply", final_description="Give the final answer with citations.",
+                final_schema=ae.QA_REPLY, max_steps=args.max_steps, allow_external=allow))
+        except BudgetStop as e:
+            print(f"STOP: {e}")
+            break
+        a = ae.answer_from_reply(q["question"], run.result, page_text, None)
+        g = grade(q, a)
+        grades.append(g)
+        runs.append(run)
+        print(f"{q['id']} {'PASS' if g['ok'] else 'FAIL'} rounds={run.rounds}{' FORCED' if run.forced else ''} "
+              f"{run.seconds:.1f}s est. ${run.usd:.4f} {({k: v for k, v in g.items() if k not in ('id', 'ok')})}")
+        if args.show or not g["ok"]:
+            _print_answer(a)
+    lat = sorted(r.seconds for r in runs)
+    stats = {**summarize_grades(grades), "questions": len(runs),
+             "median_seconds": round(lat[len(lat) // 2], 1) if lat else None,
+             "p95_seconds": round(lat[min(len(lat) - 1, int(len(lat) * 0.95))], 1) if lat else None,
+             "forced_replies": sum(r.forced for r in runs), "mean_rounds": round(sum(r.rounds for r in runs) / max(1, len(runs)), 2),
+             "usd_total": round(spend.usd, 4), "usd_per_question": round(spend.usd / max(1, len(runs)), 4),
+             "input_tokens": spend.input_tokens, "output_tokens": spend.output_tokens}
+    print(json.dumps(stats, indent=1))
+    _save_result(f"agent_questions_{args.tag}", stats)
+    return 0
+
+
 def cmd_approve(args: argparse.Namespace) -> int:
     """A person approves a saved draft work order (the agent has no such tool)."""
     try:
@@ -423,6 +510,18 @@ def main(argv: list[str] | None = None) -> int:
     ea.add_argument("--n", type=int, default=1000)
     ea.add_argument("--seed", type=int, default=42)
     ea.set_defaults(func=cmd_eval_agent)
+    al = sub.add_parser("eval-agent-llm", help="PAID: Claude uses the MCP tools in a loop; task: questions | log")
+    al.add_argument("task", choices=["questions", "log"])
+    al.add_argument("--folder", help="folder with PDFs (default: data/raw)")
+    al.add_argument("--questions", default="eval/questions.json")
+    al.add_argument("--ids")
+    al.add_argument("--limit", type=int)
+    al.add_argument("--max-steps", type=int, default=5, help="rounds of tool calls before the reply is forced")
+    al.add_argument("--max-usd", type=float, default=0.2, help="stop when the estimated spend passes this")
+    al.add_argument("--tag", default="run1", help="name of the result file in data/compare/")
+    al.add_argument("--show", action="store_true")
+    al.add_argument("--allow-external", action="store_true")
+    al.set_defaults(func=cmd_eval_agent_llm)
     ap = sub.add_parser("approve", help="a person approves a saved draft work order")
     ap.add_argument("order_id")
     ap.add_argument("--by", required=True, help="name of the person who approves")
