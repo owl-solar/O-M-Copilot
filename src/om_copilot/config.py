@@ -35,6 +35,9 @@ def _merged(local: str) -> dict[str, Any]:
         "models": mine.get("models", []) + default.get("models", []),
         "priority": {**default.get("priority", {}), **mine.get("priority", {})},
         "default_priority": mine.get("default_priority", default.get("default_priority", "P3")),
+        "sla_hours": {**default.get("sla_hours", {}), **mine.get("sla_hours", {})},
+        "capacity": {**default.get("capacity", {}), **mine.get("capacity", {})},
+        "rated_kw": {**default.get("rated_kw", {}), **mine.get("rated_kw", {})},
         "grouping": {**default.get("grouping", {}), **mine.get("grouping", {})},
         # column aliases of a log file: your names first, then the shipped ones
         "log_columns": {k: mine.get("log_columns", {}).get(k, []) + v for k, v in default.get("log_columns", {}).items()},
@@ -57,6 +60,18 @@ def model_of(filename: str) -> str:
 def priority_of(severity: str | None) -> str:
     cfg = load()
     return cfg["priority"].get((severity or "").strip().lower(), cfg["default_priority"])
+
+
+def rated_kw(model: str, asset_id: str) -> float | None:
+    """Rated power of an inverter: an entry for the asset id wins over the entry for its model label."""
+    table = load()["rated_kw"]
+    value = table.get(asset_id, table.get(model))
+    return float(value) if value is not None else None
+
+
+def sla_hours(priority: str) -> float | None:
+    value = load()["sla_hours"].get(priority)
+    return float(value) if value is not None else None
 
 
 def escalate(priority: str) -> str:

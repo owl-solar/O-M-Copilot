@@ -6,6 +6,9 @@
   ],
   "priority": {"critical": "P1", "major": "P2", "warning/major": "P2", "minor": "P3", "warning": "P3"},
   "default_priority": "P3",
+  "sla_hours": {"P1": 4, "P2": 24, "P3": 72},
+  "capacity": {"escalate_from_kw": 1000},
+  "rated_kw": {"SG350HX-20": 350, "SUN2000": 100, "Sunny Central": 2500},
   "grouping": {"window_hours": 6, "repeat_days": 30, "repeat_min": 3},
   "log_columns": {
     "ts": ["ts", "timestamp", "time", "event time", "date time", "datetime", "alarm time"],

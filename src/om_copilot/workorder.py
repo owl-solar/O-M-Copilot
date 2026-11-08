@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Iterable
+from datetime import datetime, timedelta
 from typing import Any
 
 from design_ingest import Document
@@ -76,6 +77,9 @@ class WorkOrder(BaseModel):
     fault_name: str | None = None
     severity: str | None = None
     priority: str = DEFAULT_PRIORITY
+    priority_reasons: list[str] = []  # how the priority came about, in order
+    rated_kw: float | None = None
+    respond_by: str | None = None  # reported time + SLA of the priority
     occurrences: int = 1  # raw alarms merged into this work order
     last_ts: str | None = None
     repeated: bool = False  # same code came back on this inverter (see events.group)
@@ -120,11 +124,22 @@ def build(docs: list[Document], event: dict[str, Any], retriever: Any | None = N
     safety = _safety(retriever, doc) if retriever is not None else []
     severity = rec.get("severity")
     priority = priority_of(severity)
+    reasons = [f"manual severity {severity or 'not given'} -> {priority}"]
+    kw = config.rated_kw(base["model"], base["asset_id"])
+    limit = config.load()["capacity"].get("escalate_from_kw")
+    if kw is not None and limit is not None and kw >= limit:
+        priority = config.escalate(priority)
+        reasons.append(f"rated {kw:g} kW (limit {limit:g}) -> {priority}")
     repeated = bool(event.get("repeated"))
     if repeated:
         priority = config.escalate(priority)
+        reasons.append(f"repeat on this inverter -> {priority}")
+    hours = config.sla_hours(priority)
+    respond_by = None
+    if hours:
+        respond_by = (datetime.fromisoformat(base["ts"]) + timedelta(hours=hours)).isoformat(timespec="minutes")
     return WorkOrder(**base, found=True, fault_name=rec.get("name"), severity=severity,
-                     priority=priority, occurrences=int(event.get("occurrences", 1)), last_ts=event.get("last_ts"),
+                     priority=priority, priority_reasons=reasons, rated_kw=kw, respond_by=respond_by, occurrences=int(event.get("occurrences", 1)), last_ts=event.get("last_ts"),
                      repeated=repeated, prior_incidents=int(event.get("prior_incidents", 0)),
                      steps=steps, safety=safety,
                      note=None if steps else "The manual lists no corrective measures for this code.")
@@ -141,7 +156,11 @@ def to_markdown(wo: WorkOrder) -> str:
              f"- Asset: {wo.asset_id} ({wo.model}), site {wo.site}",
              f"- Reported: {wo.ts}",
              f"- Fault: {wo.fault_code}" + (f" {wo.fault_name}" if wo.fault_name else ""),
-             f"- Priority: {wo.priority}" + (f" (manual severity: {wo.severity})" if wo.severity else "")]
+             f"- Priority: {wo.priority}" + (f" ({'; '.join(wo.priority_reasons)})" if wo.priority_reasons else "")]
+    if wo.respond_by:
+        lines.append(f"- Respond by: {wo.respond_by}")
+    if wo.rated_kw:
+        lines.append(f"- Rated power: {wo.rated_kw:g} kW")
     if wo.occurrences > 1:
         lines.append(f"- Alarms merged: {wo.occurrences} (last at {wo.last_ts})")
     if wo.repeated:

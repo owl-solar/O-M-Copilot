@@ -53,3 +53,15 @@ def test_priority_table_and_markdown():
     assert md.startswith("# Work order (DRAFT): INV-15, fault 2001")
     assert "1. Check the string layout. [Inverter Alarm Reference.pdf, pp.12-15]" in md
     assert "## Safety" in md
+
+
+def test_priority_explains_itself_and_sla_follows_final_priority(monkeypatch, tmp_path):
+    local = tmp_path / "c.json"
+    local.write_text('{"rated_kw": {"INV-15": 2000}, "sla_hours": {"P1": 2}}', encoding="utf-8")
+    monkeypatch.setenv("OM_COPILOT_LOCAL_CONFIG", str(local))
+    plain = build([DOC], {**EVENT, "asset_id": "INV-99"})  # SUN2000 default 100 kW: below the limit
+    assert plain.priority == "P2" and plain.rated_kw == 100 and plain.respond_by == "2026-01-03T00:00"
+    big = build([DOC], {**EVENT, "repeated": True, "occurrences": 3, "prior_incidents": 2})
+    assert big.priority == "P1" and big.rated_kw == 2000 and big.respond_by == "2026-01-02T02:00"
+    assert [r.split(" -> ")[1] for r in big.priority_reasons] == ["P2", "P1", "P1"]
+    assert "rated 2000 kW" in to_markdown(big) and "Respond by: 2026-01-02T02:00" in to_markdown(big)

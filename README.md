@@ -159,6 +159,8 @@ A SCADA export is a stream of alarms, not a list of jobs. `om-copilot incidents`
 - **Merges alarm storms.** The same code on the same inverter within 6 hours is one incident, so one work order, with the number of merged alarms.
 - **Marks repeats.** The third incident of the same code on the same inverter within 30 days is a repeat: the order says so and its priority goes up one level. All three numbers are in `config_default.json` (`grouping`).
 
+**Priority explains itself.** Each work order lists how its priority came about, step by step: severity printed in the manual, then a raise by one level for a large inverter (rated power at or above `capacity.escalate_from_kw`, 1000 kW by default), then a raise for a repeat. The order also carries a "respond by" time from the SLA table (`sla_hours`: P1 4 h, P2 24 h, P3 72 h). Rated powers in `config_default.json` are example values: put your own per model or per inverter id under `rated_kw` in `data/config.local.json`.
+
 On the synthetic log (seed 42, 1000 events) this gives 818 incidents, 166 of them repeats. The log is generated, so the ratio shows the mechanism and says nothing about a real plant.
 
 ## Draft work order (format)
