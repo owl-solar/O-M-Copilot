@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import shutil
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,21 @@ def inspect(doc: Document) -> dict[str, Any]:
                      "Set one: om-copilot add-manual <file> --model LABEL")
     info["notes"] = notes
     return info
+
+
+def manifest(docs: list[Document]) -> dict[str, Any]:
+    """Which manuals are loaded and how they were read: the same numbers as ``om-copilot manuals``.
+
+    Only facts (model label, file, sha256, pages, fault codes found, reader version), no manual text.
+    """
+    manuals = []
+    for doc in docs:
+        info = inspect(doc)
+        manuals.append({"model": info["model"], "file": info["file"], "sha256": getattr(doc, "sha256", None),
+                        "pages": info["pages"], "fault_codes": info["fault_codes"],
+                        "fault_pages": info["fault_pages"], "warnings": info["warnings"],
+                        "notes": info["notes"]})
+    return {"design_ingest_version": version("design-ingest"), "manuals": manuals}
 
 
 def format_report(info: dict[str, Any]) -> str:

@@ -23,7 +23,7 @@ from .events import group, read_log
 from .export import load_orders
 from .export import write_csv as write_orders_csv
 from .export import write_json as write_orders_json
-from .manuals import add_manual, format_report, inspect
+from .manuals import add_manual, format_report, inspect, manifest
 from .retrieval import Retriever
 from .synth import code_pool, generate, write_csv, write_jsonl
 from .workorder import build, to_markdown
@@ -290,6 +290,9 @@ def cmd_manuals(args: argparse.Namespace) -> int:
     if not docs:
         print("no supported files found")
         return 1
+    if args.json:
+        print(json.dumps(manifest(docs), ensure_ascii=False, indent=2))
+        return 0
     for doc in docs:
         print(format_report(inspect(doc)))
     return 0
@@ -314,6 +317,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     m = sub.add_parser("manuals", help="list the manuals with model label, fault codes and warnings")
     m.add_argument("folder", nargs="?", help="folder with PDFs (default: data/raw)")
+    m.add_argument("--json", action="store_true", help="the manifest as JSON (same as the MCP resource)")
     m.set_defaults(func=cmd_manuals)
     a = sub.add_parser("add-manual", help="add a manual: copy, read, check, save its model label")
     a.add_argument("file", help="path to the PDF")

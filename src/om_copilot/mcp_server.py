@@ -8,6 +8,7 @@ stdout belongs to the protocol: log to stderr only, never print.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -20,6 +21,7 @@ from . import config
 from .answer import answer
 from .corpus import load_documents
 from .events import filter_incidents, group, read_log
+from .manuals import manifest
 from .retrieval import Retriever, _ranges
 from .workorder import WorkOrder, build, work_order_id
 
@@ -68,6 +70,10 @@ class Tools:
 
     def _sha_of(self, filename: str) -> str | None:
         return next((getattr(d, "sha256", None) for d in self.docs if d.filename == filename), None)
+
+    def list_manuals(self) -> dict[str, Any]:
+        """The manuals behind every answer: model, file, sha256, pages, fault codes found, reader version."""
+        return manifest(self.docs)
 
     # ---- tools ----------------------------------------------------------------------------------------
 
@@ -160,9 +166,12 @@ def build_server(tools: Tools | None = None) -> Any:
     tools = tools or Tools()
     server = MCPServer("om-copilot", instructions=INSTRUCTIONS)
     read_only = ToolAnnotations(readOnlyHint=True)
-    for fn in (tools.lookup_fault_code, tools.search_manual, tools.ask_manual, tools.get_incidents,
+    for fn in (tools.list_manuals, tools.lookup_fault_code, tools.search_manual, tools.ask_manual, tools.get_incidents,
                tools.get_work_order):
         server.tool(annotations=read_only)(fn)
+    server.resource("manuals://manifest", name="manuals-manifest", mime_type="application/json",
+                    description="Manuals behind the answers: model, file, sha256, pages, fault codes, reader version")(
+        lambda: json.dumps(manifest(tools.docs), ensure_ascii=False))
     return server
 
 

@@ -9,7 +9,7 @@ from om_copilot.mcp_server import Tools
 SHA = "ab" * 32
 DOC = SimpleNamespace(
     filename="Inverter Alarm Reference.pdf",
-    sha256=SHA,
+    sha256=SHA, chunks=[], tables=[], warnings=[],
     data={"pages": 90, "fault_codes": [
         {"code": "2001", "name": "String Voltage High", "severity": "Major", "page": 12, "page_end": 15,
          "measures": ["1. Check the string layout.", "2. Measure the open-circuit voltage."]},
@@ -97,7 +97,53 @@ def test_server_registers_five_read_only_tools(tools):
 
     server = build_server(tools)
     listed = asyncio.run(server.list_tools())
-    assert {t.name for t in listed} == {"lookup_fault_code", "search_manual", "ask_manual", "get_incidents",
+    assert {t.name for t in listed} == {"list_manuals", "lookup_fault_code", "search_manual", "ask_manual", "get_incidents",
                                         "get_work_order"}
     result = asyncio.run(server.call_tool("lookup_fault_code", {"code": 2001}))
     assert "String Voltage High" in str(result)
+
+
+# ---- M2: the reader is visible ------------------------------------------------------------------------
+
+def test_manifest_matches_om_copilot_manuals(tools, monkeypatch, capsys):
+    from om_copilot import cli
+    from om_copilot.manuals import inspect
+
+    DOC.data["pages"] = 90
+    monkeypatch.setattr(cli, "load_documents", lambda folder=None: [DOC])
+    m = tools.list_manuals()
+    entry = m["manuals"][0]
+    info = inspect(DOC)
+    assert (entry["file"], entry["pages"], entry["fault_codes"], entry["model"]) == (
+        info["file"], info["pages"], info["fault_codes"], info["model"])
+    assert entry["sha256"] == SHA and m["design_ingest_version"]
+
+    cli.main(["manuals", "--json"])
+    assert json.loads(capsys.readouterr().out) == m  # CLI and MCP print the same manifest
+
+
+def test_every_answer_has_a_source_with_sha256(tools, monkeypatch, tmp_path):
+    from om_copilot import mcp_server
+
+    sources = [m["source"] for m in tools.lookup_fault_code(2001)["matches"]]
+    sources += tools.search_manual("string voltage")["hits"]
+    cite = SimpleNamespace(file=DOC.filename, page=12, verified=True, quote="q")
+    monkeypatch.setattr(mcp_server, "answer", lambda q, r: SimpleNamespace(
+        answer="a", found=True, verified=True, citations=[cite]))
+    sources += tools.ask_manual("q")["citations"]
+    oid = tools.get_incidents()["incidents"][0]["id"]
+    wo = tools.get_work_order(oid)["work_order"]
+    assert all(s["source"]["file"] == DOC.filename for s in wo["steps"])  # the sha256 sits on the order itself
+    sources.append({"sha256": wo["manual_sha256"]})
+    assert len(sources) == 4 and all(s["sha256"] == SHA for s in sources)
+
+
+def test_server_exposes_manifest_resource_and_list_tool(tools):
+    pytest.importorskip("mcp")
+    from om_copilot.mcp_server import build_server
+
+    server = build_server(tools)
+    assert "list_manuals" in {t.name for t in asyncio.run(server.list_tools())}
+    assert [str(r.uri) for r in asyncio.run(server.list_resources())] == ["manuals://manifest"]
+    body = asyncio.run(server.read_resource("manuals://manifest"))
+    assert SHA in str(body)
