@@ -16,7 +16,7 @@ from design_ingest.llm import summarize as llm_summary
 from . import feedback as fb
 from .answer import answer, grade
 from .answer import summarize as summarize_grades
-from .baseline import PRICE_IN, PRICE_OUT, ask_baseline, build_context, cost_usd
+from .baseline import PRICE_LOW, ask_baseline, build_context, cost_usd
 from .corpus import load_documents, summarize
 from .evaluation import evaluate, latency_ms, load_questions
 from .events import group, read_log
@@ -399,12 +399,12 @@ def cmd_eval_answers(args: argparse.Namespace) -> int:
     after = llm_summary()
     tin, tout = after["input_tokens"] - before["input_tokens"], after["output_tokens"] - before["output_tokens"]
     lat = latency_ms(seconds)
-    usd = (tin * PRICE_IN + tout * PRICE_OUT) / 1e6  # upper bound: the price above 100K prompt tokens
+    usd = (tin * PRICE_LOW[0] + tout * PRICE_LOW[1]) / 1e6  # every call's prompt is far below 100K tokens
     print(f"this run: {len(seconds)} questions, latency median {lat['median']} ms, p95 {lat['p95']} ms (retrieval + model), "
           f"{tin} input / {tout} output tokens, est. ${usd:.4f} ({usd / max(1, len(seconds)):.4f} per question)")
     if args.save:
         _save_result(f"pipeline_{args.save}", {**stats, "latency_ms": lat, "questions": len(seconds), "input_tokens": tin,
-                                               "output_tokens": tout, "usd_upper_bound": round(usd, 4)})
+                                               "output_tokens": tout, "usd_estimate": round(usd, 4)})
     return 0
 
 

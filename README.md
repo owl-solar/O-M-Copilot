@@ -71,6 +71,8 @@ om-copilot ui                             # demo page in the browser (pip instal
 om-copilot mcp                            # MCP server for Claude Desktop / Claude Code (pip install -e .[mcp])
 om-copilot approve ID --by NAME           # a person approves a saved draft work order
 om-copilot eval-agent                     # scripted agent on the synthetic log, checks (free)
+om-copilot eval-agent-llm questions --allow-external   # PAID: Haiku calls the MCP tools on the 25 questions (about 2 cents)
+om-copilot eval-agent-llm log --allow-external         # PAID: the chronic-repeat task on the synthetic log
 om-copilot export                         # all work orders -> one CSV and one JSON for a maintenance system
 om-copilot feedback ID --step 2 --failed  # a technician marks a step: --helped or --failed
 om-copilot feedback-report                # helped rate overall and per fault code, worst first
@@ -217,6 +219,7 @@ om-copilot mcp                 # the server (stdio); a client starts it for you
 | `search_manual` | Hybrid search plus exact code lookup; shortened passages with file, page, sha256 | free |
 | `ask_manual` | Answer with quotes checked in code | one paid call, only if the operator allowed external calls; the agent cannot allow it |
 | `get_incidents` | Incidents from the fault log: storms merged, repeats, priority, respond-by time | free |
+| `get_repeat_pairs` | Inverter and fault-code pairs with at least N repeat incidents; the count is computed by code | free |
 | `get_work_order` | A saved order with its status, or a fresh draft for an incident id | free |
 | `propose_work_order` | Saves a **draft**. The only write. | free |
 
@@ -286,7 +289,44 @@ Replace `<project>` with the folder of your checkout. `OM_COPILOT_MCP_MODE=bm25`
 | Drafts written / written without a person's confirmation | 3 / 0 |
 | Numbers in the report that are in no tool output | 0 |
 
-The priority check applies the same rules from `config.py`, so it catches wiring mistakes, not a wrong rule. A run with a real model in the loop is not done yet.
+The priority check applies the same rules from `config.py`, so it catches wiring mistakes, not a wrong rule. The same checks score a real model in the loop (`om-copilot eval-agent-llm`, paid); results are in the next section.
+
+## Comparing the stages
+
+The same 25 questions (22 answerable, 3 that the manuals cannot answer) over the three manuals, each stage built on the previous one. Haiku 5.5 is the only model. One run per row, so differences of one question are noise.
+
+| Stage | hit@5 | MRR | Expected page cited | Quotes found in the text the model was shown | Refuses the 3 unanswerable | Time per question (median) | Cost per question |
+|---|---|---|---|---|---|---|---|
+| 1. BM25 keyword search | 0.82 | 0.79 | no answer | | | 0.12 s (search only) | 0 |
+| 2. Hybrid: BM25 + local embeddings | 0.95 | 0.72 | no answer | | | 0.23 s | 0 |
+| 3. Hybrid + exact fault-code lookup | 1.00 | 0.83 | no answer | | | 0.23 s | 0 |
+| 4. Pipeline: stage 3 + Haiku answer + quote check | 1.00 | 0.83 | 22 / 22 | 22 / 22 | 3 / 3 | 2.0 s (p95 3.0 s) | about $0.0005 |
+| 5. No retrieval: all manuals in the prompt | n/a | n/a | 14 / 22 | 15 / 22 | 3 / 3 | not measured | about $0.018 |
+| 6. Agent: Haiku calls the MCP tools (at most 5 rounds, 1.4 on average) | n/a | n/a | 21 / 22 | 20 / 22 | 3 / 3 | 4.0 s (p95 6.2 s) | about $0.0009 |
+
+How to read it:
+
+- Stages 1 to 3 are the retrieval choice. Embeddings find the page when the question uses other words than the manual, but blur numbers; the exact code lookup fixes that. BM25 alone scored 0.77 / 0.76 when I first measured it (design-ingest v0.5.0) and scores 0.82 / 0.79 with v0.7.0; the other rows were measured with v0.7.0.
+- Stage 4 is the cheapest way to get a checked answer: the model sees eight passages and every quote is compared with them in code. Stage 5 costs about 35 times more per question, starts slowly (the prompt is 226K tokens) and cites the right page less often, even though the model reads everything.
+- Stage 6 works with the same tools Claude Desktop gets. It costs about twice as much as stage 4 and takes twice as long, because it decides what to look up. Its two answers with a failed quote check (q09, q14) contain quotes that the model joined from separate fragments or changed by a word; the check caught both. One question (q21) was answered from a different page than the one I had marked, with a quote that was found.
+- "Quotes found" is checked against what the model was shown: for stages 4 and 6 the passages or tool results, for stage 5 the whole page text. A stricter check of stage 6 against the full page text gives only 7 / 22, because the fault tables are stored as records, not as running text; I do not read that as invention, but it means a quote from a record often cannot be found on the page by a plain text search.
+- Costs use the price list for Haiku 5.5 ($0.10 / $0.50 per million tokens up to 100K prompt tokens, $0.50 / $2.50 above); the cache multipliers for stage 5 are my assumption. These are estimates from token counts, not an invoice.
+
+**A task on the log, not on the manuals** (synthetic log, seed 42; the generator knows what it planted). Find the inverter and fault-code pairs with at least 4 repeat incidents, then save drafts for the two most urgent repeat incidents.
+
+| | Scripted plan (no model) | Haiku with `get_incidents` only | Haiku with `get_repeat_pairs` |
+|---|---|---|---|
+| Result | storms 25 / 25, chronic 3 / 3 | gave up twice: tried to count 166 rows by hand and never filed a report | pairs 16 / 16, counts 16 / 16 |
+| Two most urgent drafts | 3 drafts | none | both right |
+| Writes without a person's confirmation | 0 | 0 | 0 |
+| Numbers in the report missing from tool output | 0 | n/a | 0 |
+| Cost / time | free | about $0.01 per try | about $0.003, 9 s, 2 tool rounds |
+
+This is why `get_repeat_pairs` exists: counting is code's job. With 166 rows in front of it the model did not count reliably and stopped, which is the right failure (no invented numbers) but not a useful one. Of the three series the generator planted as chronic, two reach 4 repeat incidents by the rules and both were reported; the third stays below the threshold, so 16 pairs is everything the log holds.
+
+**What changed after I saw the first results, and what that does to the numbers.** The agent's reply schema now lists `found` first (the model had written the later fields into the free-text answer); the loop reminds the model once to call the final tool; the agent's quotes are checked against the tool results instead of the full page text (the stricter check is reported above); the `get_repeat_pairs` tool was added after the first two log tries. Each fix was made on these 25 questions and this one log, so stage 6 is tuned a little to them; the pipeline (stage 4) was not changed. The questions are also the ones used to choose the retrieval, so stages 1 to 3 are measured on the data they were tuned on. The fault logs are synthetic: the log task shows that the tools and checks work, not how a real plant behaves.
+
+**What I did not build: a knowledge graph** (fault code, cause, component, procedure, spare part). The readers extract code, name, corrective measures and, for one manufacturer, causes. Components and spare parts are not in those records, so a graph would be the same table with another name. If a manual's fault table gains component or part columns in design-ingest, a small SQLite or networkx graph built from them would be worth trying.
 
 **Roadmap:** pvlib expected-yield check, string currents, warranty claims, monthly reports, link to Owl Reset.
 
@@ -294,6 +334,7 @@ The priority check applies the same rules from `config.py`, so it catches wiring
 
 - **Small evaluation set.** 25 questions over three manuals, checked by hand. The numbers show the
   approach works; they are not a guarantee for every manual or every wording of a question.
+- **Letter codes (F0234) work for lookup and search, not yet for work orders or the log importer**, which use numeric codes. No local manual has letter codes, so this is tested with invented records only.
 - **English only** for now (search, embeddings and the model prompt). Ukrainian is planned.
 - **PDFs with a text layer.** Scanned manuals without text are not read.
 - **Fault-code tables need a known layout.** A new layout has to be added to design-ingest; until then

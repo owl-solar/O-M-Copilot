@@ -2,8 +2,7 @@
 
 The tools are the ones a Claude Desktop user gets, called over the MCP protocol (in-process client to the same
 server object). Limits: at most ``max_steps`` rounds of tool calls, then the model must give its final
-structured reply; a spending cap in USD (estimated with the prices in baseline.py, an upper bound for
-small prompts) stops the run. External calls stay behind the design-ingest guard.
+structured reply; a spending cap in USD (estimated with the prices in baseline.py) stops the run. External calls stay behind the design-ingest guard.
 """
 from __future__ import annotations
 

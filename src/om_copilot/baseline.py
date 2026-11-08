@@ -28,9 +28,12 @@ SYSTEM = (
     "page (at most 200 characters, no rewording). Keep the answer short and keep the units."
 )
 
-# USD per million tokens for claude-haiku-5-5 above 100K prompt tokens; cache write 1.25x, cache read 0.1x of
-# the input price. An estimate for the spending cap, not billing.
-PRICE_IN, PRICE_OUT = 0.50, 2.50
+# USD per million tokens for claude-haiku-5-5: $0.10 / $0.50 for prompts up to 100K tokens, $0.50 / $2.50 above
+# (price list in the claude-api skill, 2026-11). Cache write 1.25x, cache read 0.1x of the input price is an
+# assumption (the price list does not give Haiku's cache multipliers). An estimate for the spending cap, not billing.
+PRICE_LOW = (0.10, 0.50)
+PRICE_HIGH = (0.50, 2.50)
+LONG_PROMPT = 100_000
 
 
 class _Cite(BaseModel):
@@ -66,7 +69,8 @@ def cost_usd(usage: Any) -> float:
     write = getattr(usage, "cache_creation_input_tokens", 0) or 0
     read = getattr(usage, "cache_read_input_tokens", 0) or 0
     out = getattr(usage, "output_tokens", 0) or 0
-    return (inp + 1.25 * write + 0.1 * read) * PRICE_IN / 1e6 + out * PRICE_OUT / 1e6
+    price_in, price_out = PRICE_HIGH if inp + write + read > LONG_PROMPT else PRICE_LOW
+    return (inp + 1.25 * write + 0.1 * read) * price_in / 1e6 + out * price_out / 1e6
 
 
 def ask_baseline(question: str, context: str, page_text: dict[tuple[str, int], str], *, client: Any,
