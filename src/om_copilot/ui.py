@@ -98,12 +98,20 @@ def tab_incidents(folder: str) -> None:
         st.warning(f"{len(report.skipped)} rows could not be read, for example: {report.skipped[0]}")
     f1, f2, f3 = st.columns(3)
     repeated = f1.checkbox("Repeats only")
-    models = f2.multiselect("Model", sorted({i["model"] for i in incidents}))
-    sites = f3.multiselect("Site", sorted({i["site"] for i in incidents}))
+    models = f2.multiselect("Model", sorted({i["model"] for i in incidents}), placeholder="All models")
+    sites = f3.multiselect("Site", sorted({i["site"] for i in incidents}), placeholder="All sites")
     shown = filter_incidents(incidents, repeated_only=repeated, models=models, sites=sites)
+    docs = manuals(folder)
+    rows = []
+    for i in shown:
+        wo = build(docs, i)  # no retriever: priority and deadline only, cheap
+        rows.append({"priority": wo.priority, "respond_by": wo.respond_by or "-",
+                     **{k: i[k] for k in ("ts", "site", "asset_id", "model", "fault_code", "occurrences", "repeated")}})
+    order = sorted(range(len(shown)), key=lambda n: (rows[n]["priority"], rows[n]["respond_by"]))
+    shown = [shown[n] for n in order]
     st.session_state["shown"] = shown
-    st.dataframe([{k: i[k] for k in ("ts", "site", "asset_id", "model", "fault_code", "occurrences", "repeated")}
-                  for i in shown], width="stretch", hide_index=True)
+    st.caption("Sorted by priority, then by response deadline.")
+    st.dataframe([rows[n] for n in order], width="stretch", hide_index=True)
 
 
 def tab_order(folder: str) -> None:
