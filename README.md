@@ -47,6 +47,23 @@ om-copilot eval-answers --allow-external  # 25 paid calls, about 1.5 cents with 
 
 The question set and expected pages are in `eval/questions.json`; expected pages were checked by hand against the PDFs.
 
+## Examples (real runs, retold in my own words; the tool itself prints the manual's quotes)
+
+**Question with a fault code** (`om-copilot ask "SG350HX shows fault 39. What should I check?"`):
+
+```
+Fault 39 (Low System Insulation Resistance): check the ISO resistance protection value, the resistance
+to ground of the string and DC cable, and the battery cables; contact the manufacturer if nothing helps.
+  [SG305HX_SG320HX-20_SG350HX-20 User Manual.pdf, p.131] quote found in the passage: yes
+  (one citation per step; the quotes are shown by the tool, not reproduced here)
+```
+
+**Procedure question** ("How do I disconnect the inverter for maintenance?"): four steps (open the external AC breaker and secure it, turn the DC switch off, wait about 25 minutes for the capacitors to discharge, confirm with a clamp that the DC cable carries no current). Each step has a citation to p.136 of the same manual and every quote was verified in code.
+
+**Question the manuals do not answer** ("... Fronius Symo error E306 ..."): `found=False`, no citations. The model says the passages contain no such code and names what is missing instead of guessing.
+
+**Work order** (`om-copilot workorder -n 5`): for a Sungrow record with fault 1600 the order has priority P3 (the manual gives no severity), two safety excerpts (pp. 137 and 15) and four steps from p.134, each in the manual's own words with its page. Files: one JSON and one markdown per record.
+
 ## Draft work order (format)
 
 A work order is built from a fault-log record without an LLM. Its steps are the manual's corrective measures, each with file and page; safety items are the DANGER/WARNING passages of the same manual; priority comes from the severity printed in the manual (table in `workorder.py`). Shape of the markdown view (text paraphrased here):
