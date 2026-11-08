@@ -4,7 +4,7 @@
 
 ![A draft work order: priority with its reasons, respond-by time, steps with file and page, a Helped / Did not work button under each step](docs/img/ui-work-order.png)
 
-Status: working CLI, demo page (Streamlit) and MCP server; evaluated on 25 questions over three manuals from three manufacturers. See [PLAN.md](PLAN.md) for the plan.
+Status: working CLI, demo page (Streamlit) and MCP server; evaluated on 25 questions over three manuals from three manufacturers.
 
 ## What it does
 

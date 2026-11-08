@@ -28,7 +28,7 @@ def _norm(s: str) -> str:
 
 
 def grade(q: dict[str, Any], a: Answer) -> dict[str, Any]:
-    """Checks without an LLM judge (see PLAN.md, section 4).
+    """Checks without an LLM judge.
 
     answerable: ``found``, every citation verified, an expected (file, page) is cited, all ``must_contain``
     words (local file, optional) appear in the answer or in a verified quote. Unanswerable: the model must say ``found`` = false.
